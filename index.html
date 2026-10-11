@@ -23,11 +23,11 @@
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
   >
 
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
 
-  <script src="js/config.js?v=6" defer></script>
-  <script src="js/drive.js?v=6" defer></script>
-  <script src="js/app.js?v=6" defer></script>
+  <script src="js/config.js?v=7" defer></script>
+  <script src="js/drive.js?v=7" defer></script>
+  <script src="js/app.js?v=7" defer></script>
 </head>
 
 <body>
@@ -42,7 +42,7 @@
 
   <!-- Верхняя панель -->
   <header class="topbar">
-    <a class="brand" href="#" id="brandHome" aria-label="Cosplay Archive">
+    <a class="brand" href="#/" id="brandHome" aria-label="Cosplay Archive">
       <span class="brand-mark">CA</span>
       <span class="brand-name">Cosplay <strong>Archive</strong></span>
     </a>
@@ -218,6 +218,11 @@
         <h2>Сетов пока нет</h2>
         <p>Добавь первый фотосет этой модели.</p>
       </div>
+    </section>
+
+    <!-- Страница отдельного сета -->
+    <section class="page hidden" id="page-set-detail">
+      <div id="setDetailBody"></div>
     </section>
 
   </main>
@@ -469,50 +474,6 @@
         </button>
       </div>
     </form>
-  </dialog>
-
-  <!-- Просмотр сета -->
-  <dialog
-    id="setViewDialog"
-    class="dialog view-set-dialog"
-    aria-labelledby="viewSetTitle"
-  >
-    <div class="dialog-form gallery-dialog-inner">
-      <div class="dialog-heading">
-        <div>
-          <p class="eyebrow" id="viewModelName">КОСПЛЕЕРША</p>
-          <h2 id="viewSetTitle">Название сета</h2>
-          <p id="viewSetMeta" class="muted"></p>
-        </div>
-
-        <button
-          class="icon-button"
-          type="button"
-          data-close="setViewDialog"
-          aria-label="Закрыть"
-        >
-          ×
-        </button>
-      </div>
-
-      <div class="tag-chips" id="viewSetTags"></div>
-      <p class="view-description" id="viewSetDescription"></p>
-      <div class="photo-gallery" id="viewGallery"></div>
-
-      <div class="dialog-actions gallery-actions">
-        <button class="button button-quiet" id="viewFavoriteBtn" type="button">
-          ☆ В избранное
-        </button>
-
-        <button class="button button-quiet" id="editViewedSetBtn" type="button">
-          Редактировать
-        </button>
-
-        <button class="button button-danger" id="deleteViewedSetBtn" type="button">
-          Удалить сет
-        </button>
-      </div>
-    </div>
   </dialog>
 
   <!-- Полноэкранный просмотр фотографии -->
