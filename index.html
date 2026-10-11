@@ -23,11 +23,11 @@
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
   >
 
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
 
-  <script src="js/config.js?v=7" defer></script>
-  <script src="js/drive.js?v=7" defer></script>
-  <script src="js/app.js?v=7" defer></script>
+  <script src="js/config.js?v=8" defer></script>
+  <script src="js/drive.js?v=8" defer></script>
+  <script src="js/app.js?v=8" defer></script>
 </head>
 
 <body>
@@ -302,6 +302,21 @@
         >
       </label>
 
+      <label for="modelSlug">
+        Адрес страницы в архиве
+        <input
+          id="modelSlug"
+          type="text"
+          maxlength="60"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Например, nika"
+        >
+        <small id="modelSlugHint">
+          Короткое имя для ссылки. Если оставить пустым — возьмётся из ника.
+        </small>
+      </label>
+
       <label for="modelUrl">
         Ссылка на страницу
         <input
@@ -398,6 +413,21 @@
             maxlength="140"
             placeholder="По умолчанию — имя персонажа"
           >
+        </label>
+
+        <label class="full-width" for="setSlug">
+          Адрес страницы сета
+          <input
+            id="setSlug"
+            type="text"
+            maxlength="80"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Например, tifa-lockhart"
+          >
+          <small id="setSlugHint">
+            Короткое имя для ссылки. Если оставить пустым — возьмётся из названия.
+          </small>
         </label>
 
         <label for="setRating">
