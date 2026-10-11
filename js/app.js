@@ -384,11 +384,45 @@
     }, 3500);
   }
 
-  function setBusy(value) {
+  function setBusy(value, label = "") {
     state.busy = value;
 
     $$("button[type='submit']").forEach(button => {
       button.disabled = value;
+    });
+
+    document.body.classList.toggle("is-busy", value);
+
+    if (value) {
+      showProgress(label);
+    } else {
+      hideProgress();
+    }
+  }
+
+  function showProgress(label = "") {
+    const bar = $("#progressBar");
+    if (!bar) return;
+
+    if (label) bar.setAttribute("aria-label", label);
+
+    clearTimeout(showProgress.timer);
+    showProgress.timer = setTimeout(() => {
+      bar.classList.remove("hidden");
+    }, 300);
+  }
+
+  function hideProgress() {
+    clearTimeout(showProgress.timer);
+    $("#progressBar")?.classList.add("hidden");
+  }
+
+  function closeCardMenus() {
+    $$(".card-menu-wrap.is-open").forEach(wrap => {
+      wrap.classList.remove("is-open");
+      wrap
+        .querySelector(".card-menu-toggle")
+        ?.setAttribute("aria-expanded", "false");
     });
   }
 
@@ -625,6 +659,51 @@
     `;
   }
 
+  function renderRatingStars(rating) {
+    const value = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+    let stars = "";
+
+    for (let i = 1; i <= 5; i += 1) {
+      stars += `<span class="star ${i <= value ? "on" : "off"}">★</span>`;
+    }
+
+    return `<span class="card-rating" role="img"
+      aria-label="Рейтинг ${value} из 5">${stars}</span>`;
+  }
+
+  function renderCardMenu(id, kind) {
+    const isModel = kind === "model";
+    const set = isModel ? null : getSet(id);
+
+    return `
+      <div class="card-menu-wrap">
+        <button class="icon-button card-menu-toggle" type="button"
+          data-action="toggle-card-menu"
+          aria-haspopup="menu" aria-expanded="false"
+          aria-label="Действия">
+          ⋯
+        </button>
+        <div class="card-menu" role="menu">
+          <button class="card-menu-item" type="button" role="menuitem"
+            data-action="${isModel ? "edit-model" : "edit-set"}"
+            data-id="${escapeHTML(id)}">
+            Изменить
+          </button>
+          ${isModel ? "" : `
+            <button class="card-menu-item" type="button" role="menuitem"
+              data-action="favorite-set" data-id="${escapeHTML(id)}">
+              ${set?.favorite ? "Убрать из избранного" : "В избранное"}
+            </button>`}
+          <button class="card-menu-item is-danger" type="button" role="menuitem"
+            data-action="${isModel ? "delete-model" : "delete-set"}"
+            data-id="${escapeHTML(id)}">
+            Удалить
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   function renderModelCard(model) {
     const setsCount = countModelSets(model.id);
     const tags = model.tags || [];
@@ -632,7 +711,8 @@
     const coverURL = cover ? photoURL(cover) : "";
 
     return `
-      <article class="archive-card model-card" data-model-id="${escapeHTML(model.id)}">
+      <article class="archive-card model-card" data-model-id="${escapeHTML(model.id)}"
+        data-action="open-model" data-id="${escapeHTML(model.id)}">
         <button class="card-cover" type="button"
           data-action="open-model" data-id="${escapeHTML(model.id)}"
           aria-label="Открыть модель ${escapeHTML(model.name)}">
@@ -652,18 +732,11 @@
                </p>`
             : ""}
           ${renderCardTags(tags)}
-          <div class="card-meta">
-            <span>${setsCount} ${pluralize(setsCount, "сет", "сета", "сетов")}</span>
-          </div>
           <div class="card-actions">
-            <button class="button small" type="button"
-              data-action="open-model" data-id="${escapeHTML(model.id)}">
-              Открыть
-            </button>
-            <button class="button button-quiet small" type="button"
-              data-action="edit-model" data-id="${escapeHTML(model.id)}">
-              Изменить
-            </button>
+            <div class="card-meta">
+              <span>${setsCount} ${pluralize(setsCount, "сет", "сета", "сетов")}</span>
+            </div>
+            ${renderCardMenu(model.id, "model")}
           </div>
         </div>
       </article>
@@ -679,7 +752,8 @@
     const photoCount = getSetPhotos(set).length;
 
     return `
-      <article class="archive-card set-card" data-set-id="${escapeHTML(set.id)}">
+      <article class="archive-card set-card" data-set-id="${escapeHTML(set.id)}"
+        data-action="view-set" data-id="${escapeHTML(set.id)}">
         <button class="card-cover" type="button"
           data-action="view-set" data-id="${escapeHTML(set.id)}"
           aria-label="Открыть сет ${escapeHTML(set.character)}">
@@ -715,19 +789,12 @@
                </p>`
             : `<p class="card-subtitle">Модель не найдена</p>`}
           ${renderCardTags(tags)}
-          <div class="card-meta">
-            <span>${escapeHTML(formatDate(set.date || set.createdAt?.slice(0, 10)))}</span>
-            ${rating ? `<span>★ ${rating}/5</span>` : ""}
-          </div>
           <div class="card-actions">
-            <button class="button small" type="button"
-              data-action="view-set" data-id="${escapeHTML(set.id)}">
-              Смотреть
-            </button>
-            <button class="button button-quiet small" type="button"
-              data-action="edit-set" data-id="${escapeHTML(set.id)}">
-              Изменить
-            </button>
+            <div class="card-meta">
+              <span>${escapeHTML(formatDate(set.date || set.createdAt?.slice(0, 10)))}</span>
+              ${rating ? renderRatingStars(rating) : ""}
+            </div>
+            ${renderCardMenu(set.id, "set")}
           </div>
         </div>
       </article>
@@ -1124,7 +1191,7 @@
       updatedAt: new Date().toISOString()
     };
 
-    setBusy(true);
+    setBusy(true, "Сохранение модели…");
 
     try {
       await db.put(CONFIG.stores.models, model);
@@ -1512,7 +1579,7 @@
       updatedAt: new Date().toISOString()
     };
 
-    setBusy(true);
+    setBusy(true, "Сохранение сета…");
 
     try {
       await db.saveSetWithPhotos(
@@ -1756,7 +1823,7 @@
   async function exportBackup() {
     if (state.busy) return;
 
-    setBusy(true);
+    setBusy(true, "Экспорт архива…");
 
     try {
       const photos = [];
@@ -1806,7 +1873,7 @@
       return;
     }
 
-    setBusy(true);
+    setBusy(true, "Импорт архива…");
 
     try {
       const text = await file.text();
@@ -2119,6 +2186,7 @@
     state.drive.syncing = true;
     state.drive.error = "";
     updateDriveUI();
+    showProgress("Синхронизация с Google Drive…");
 
     try {
       await drive.ensureFolders();
@@ -2281,6 +2349,7 @@
       }
     } finally {
       state.drive.syncing = false;
+      hideProgress();
       updateDriveUI();
     }
   }
@@ -2321,6 +2390,22 @@
   function handleAction(action, element) {
     const id = element.dataset.id;
     const tag = element.dataset.tag;
+
+    if (action === "toggle-card-menu") {
+      const wrap = element.closest(".card-menu-wrap");
+      const willOpen = !wrap?.classList.contains("is-open");
+
+      closeCardMenus();
+
+      if (wrap && willOpen) {
+        wrap.classList.add("is-open");
+        element.setAttribute("aria-expanded", "true");
+      }
+
+      return;
+    }
+
+    closeCardMenus();
 
     switch (action) {
       case "add-model":
@@ -2561,10 +2646,22 @@
     // Делегирование кликов по динамическим карточкам и галереям.
     document.addEventListener("click", event => {
       const element = event.target.closest("[data-action]");
-      if (!element) return;
+
+      if (!element) {
+        closeCardMenus();
+        return;
+      }
 
       // Ссылки на внешние профили не должны перехватываться.
       if (element.tagName === "A") return;
+
+      // Клик по вложенной ссылке или полю внутри карточки не должен
+      // открывать саму карточку.
+      const nestedControl = event.target.closest(
+        "a, input, select, textarea, label"
+      );
+
+      if (nestedControl && element.contains(nestedControl)) return;
 
       handleAction(element.dataset.action, element);
     });
@@ -2597,6 +2694,10 @@
     // Управление просмотром фото с клавиатуры.
     document.addEventListener("keydown", event => {
       const dialog = $("#photoDialog");
+
+      if (event.key === "Escape") {
+        closeCardMenus();
+      }
 
       if (dialog?.open) {
         if (event.key === "Escape") {

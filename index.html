@@ -16,14 +16,23 @@
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
   >
 
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=4">
 
-  <script src="js/config.js?v=3" defer></script>
-  <script src="js/drive.js?v=3" defer></script>
-  <script src="js/app.js?v=3" defer></script>
+  <script src="js/config.js?v=4" defer></script>
+  <script src="js/drive.js?v=4" defer></script>
+  <script src="js/app.js?v=4" defer></script>
 </head>
 
 <body>
+  <div
+    class="progress-bar hidden"
+    id="progressBar"
+    role="progressbar"
+    aria-label="Идёт операция"
+  >
+    <span></span>
+  </div>
+
   <!-- Верхняя панель -->
   <header class="topbar">
     <a class="brand" href="#" id="brandHome" aria-label="Cosplay Archive">
@@ -73,10 +82,6 @@
             Косплеерши, их персонажи и фотосеты.
           </p>
         </div>
-
-        <button class="button button-primary" id="addModelBtn" type="button">
-          + Добавить модель
-        </button>
       </div>
 
       <div class="toolbar">
@@ -126,10 +131,6 @@
             Фотосеты всех косплеерш в одной ленте.
           </p>
         </div>
-
-        <button class="button button-primary" id="addSetBtn" type="button">
-          + Добавить сет
-        </button>
       </div>
 
       <div class="toolbar">
@@ -171,7 +172,7 @@
       <div class="card-grid" id="setsGrid"></div>
 
       <div class="empty-state hidden" id="setsEmpty">
-        <div class="empty-icon" aria-hidden="true">▧</div>
+        <div class="empty-icon" aria-hidden="true">✦</div>
         <h2>Сетов пока нет</h2>
         <p>
           Создай сет и добавь фотографии. Он появится здесь
@@ -202,14 +203,6 @@
             Все фотосеты этой косплеерши.
           </p>
         </div>
-
-        <button
-          class="button button-primary"
-          id="addSetForModelBtn"
-          type="button"
-        >
-          + Добавить сет
-        </button>
       </div>
 
       <div class="card-grid" id="modelSetsGrid"></div>
@@ -224,28 +217,33 @@
 
   <!-- Подвал -->
   <footer class="footer">
-    <span>Cosplay Archive</span>
-    <span id="footerStats">
+    <div class="footer-stats" id="footerStats">
       Локальный архив · данные хранятся в этом браузере
-    </span>
+    </div>
 
-    <button class="text-button" id="backupBtn" type="button">
-      Экспорт каталога
-    </button>
+    <div class="footer-actions">
+      <span class="footer-label">Каталог</span>
 
-    <label class="text-button import-label">
-      Импорт каталога
-      <input
-        type="file"
-        id="importInput"
-        accept=".json,application/json"
-        hidden
-      >
-    </label>
+      <button class="text-button" id="backupBtn" type="button">
+        Экспорт
+      </button>
+
+      <label class="text-button import-label">
+        Импорт
+        <input
+          type="file"
+          id="importInput"
+          accept=".json,application/json"
+          hidden
+        >
+      </label>
+    </div>
 
     <div class="drive-bar" id="driveBar">
+      <span class="footer-label">Google Drive</span>
+
       <button class="text-button" type="button" id="driveConnectBtn">
-        Подключить Google Drive
+        Подключить
       </button>
 
       <button class="text-button hidden" type="button" id="driveSyncBtn">
@@ -253,7 +251,7 @@
       </button>
 
       <button class="text-button hidden" type="button" id="driveSignOutBtn">
-        Отключить Drive
+        Отключить
       </button>
 
       <span class="drive-status" id="driveStatus"></span>
@@ -261,7 +259,7 @@
   </footer>
 
   <!-- Окно добавления или редактирования модели -->
-  <dialog id="modelDialog" class="dialog">
+  <dialog id="modelDialog" class="dialog" aria-labelledby="modelDialogTitle">
     <form id="modelForm" class="dialog-form">
       <div class="dialog-heading">
         <div>
@@ -337,7 +335,11 @@
   </dialog>
 
   <!-- Окно добавления или редактирования сета -->
-  <dialog id="setDialog" class="dialog dialog-wide">
+  <dialog
+    id="setDialog"
+    class="dialog dialog-wide"
+    aria-labelledby="setDialogTitle"
+  >
     <form id="setForm" class="dialog-form">
       <div class="dialog-heading">
         <div>
@@ -463,7 +465,11 @@
   </dialog>
 
   <!-- Просмотр сета -->
-  <dialog id="setViewDialog" class="dialog view-set-dialog">
+  <dialog
+    id="setViewDialog"
+    class="dialog view-set-dialog"
+    aria-labelledby="viewSetTitle"
+  >
     <div class="dialog-form gallery-dialog-inner">
       <div class="dialog-heading">
         <div>
