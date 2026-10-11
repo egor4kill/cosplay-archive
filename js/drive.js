@@ -112,7 +112,7 @@
 
   function connect() {
     if (hasToken()) return Promise.resolve(accessToken);
-    return requestToken();
+    return requestToken({ prompt: "select_account" });
   }
 
   function trySilentConnect() {
