@@ -338,6 +338,9 @@
     selectedModelId: null,
     viewedSetId: null,
     routeKey: "",
+    reopeningLightbox: false,
+    route: null,
+    slugCache: null,
     activeTag: "",
     lightboxPhotos: [],
     lightboxIndex: 0,
@@ -469,6 +472,110 @@
     return state.sets.find(set => set.id === id);
   }
 
+  /* -------------------- Адреса (slug) -------------------- */
+
+  function slugify(value) {
+    return String(value ?? "")
+      .normalize("NFKC")
+      .toLocaleLowerCase("ru")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^\p{L}\p{N}_-]+/gu, "")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function slugMaps() {
+    if (state.slugCache) return state.slugCache;
+
+    const byDate = (a, b) =>
+      String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
+      || String(a.id).localeCompare(String(b.id));
+
+    const assign = (items, used, baseOf, fallback, out) => {
+      for (const item of [...items].sort(byDate)) {
+        if (item.slug) {
+          out.set(item.id, item.slug);
+          continue;
+        }
+
+        const base = slugify(baseOf(item)) || fallback;
+        let candidate = base;
+        let n = 1;
+
+        while (used.has(candidate)) candidate = `${base}-${++n}`;
+
+        used.add(candidate);
+        out.set(item.id, candidate);
+      }
+    };
+
+    const models = new Map();
+    assign(
+      state.models,
+      new Set(state.models.map(model => model.slug).filter(Boolean)),
+      model => model.name,
+      "model",
+      models
+    );
+
+    const sets = new Map();
+    const groups = new Map();
+
+    for (const set of state.sets) {
+      if (!groups.has(set.modelId)) groups.set(set.modelId, []);
+      groups.get(set.modelId).push(set);
+    }
+
+    for (const group of groups.values()) {
+      assign(
+        group,
+        new Set(group.map(set => set.slug).filter(Boolean)),
+        set => set.title || set.character,
+        "set",
+        sets
+      );
+    }
+
+    state.slugCache = { models, sets };
+    return state.slugCache;
+  }
+
+  function modelSlug(modelOrId) {
+    const model = typeof modelOrId === "string"
+      ? getModel(modelOrId)
+      : modelOrId;
+
+    return model ? slugMaps().models.get(model.id) || "" : "";
+  }
+
+  function setSlug(setOrId) {
+    const set = typeof setOrId === "string" ? getSet(setOrId) : setOrId;
+    return set ? slugMaps().sets.get(set.id) || "" : "";
+  }
+
+  function findModelByRef(ref) {
+    if (!ref) return null;
+
+    const lower = String(ref).toLocaleLowerCase("ru");
+
+    return state.models.find(model => modelSlug(model) === lower)
+      || state.models.find(model => model.id === ref)
+      || null;
+  }
+
+  function findSetByRef(modelId, ref) {
+    if (!ref) return null;
+
+    const lower = String(ref).toLocaleLowerCase("ru");
+
+    return state.sets.find(
+      set => set.modelId === modelId && setSlug(set) === lower
+    ) || state.sets.find(
+      set => set.modelId === modelId && set.id === ref
+    ) || null;
+  }
+
   function getSetPhotos(set) {
     // Для ещё не сохранённого сета возвращаем только что выбранные фото,
     // чтобы превью и обложка работали при создании нового сета.
@@ -529,6 +636,7 @@
     state.models = models;
     state.sets = sets;
     state.photos = photos;
+    state.slugCache = null;
   }
 
   function sortModels(models, sort) {
@@ -705,11 +813,22 @@
     `;
   }
 
+  // Ссылки строятся по адресам (slug): #/model/nika и #/model/nika/tifa-lockhart.
+  // Если записи нет в данных — откатываемся на id.
   function modelHref(id) {
-    return `#/model/${encodeURIComponent(id)}`;
+    const model = getModel(id);
+    return `#/model/${encodeURIComponent(model ? modelSlug(model) : id)}`;
   }
 
   function setHref(id) {
+    const set = getSet(id);
+    const model = set ? getModel(set.modelId) : null;
+
+    if (set && model) {
+      return `#/model/${encodeURIComponent(modelSlug(model))}`
+        + `/${encodeURIComponent(setSlug(set))}`;
+    }
+
     return `#/set/${encodeURIComponent(id)}`;
   }
 
@@ -1098,12 +1217,30 @@
     renderTagChips();
     renderSets();
 
+    // Ссылка могла быть открыта раньше, чем подтянулись данные (Google Drive).
+    if (
+      state.route
+      && (
+        (state.page === "model-detail" && !state.selectedModelId)
+        || (state.page === "set-detail" && !state.viewedSetId)
+      )
+    ) {
+      const { modelId, setId } = resolveRoute(state.route);
+
+      if (state.page === "model-detail") state.selectedModelId = modelId;
+      if (state.page === "set-detail") {
+        state.viewedSetId = setId;
+        state.selectedModelId = modelId;
+      }
+    }
+
     if (state.page === "model-detail") {
       renderModelDetail();
     } else if (state.page === "set-detail") {
       renderSetDetail();
     }
 
+    syncHash();
     renderStats();
     updateNavigation();
     updateDocumentTitle();
@@ -1146,28 +1283,103 @@
   }
 
   function parseRoute() {
-    const raw = location.hash.replace(/^#\/?/, "");
-    const [name, ...rest] = raw.split("/");
+    const parts = location.hash
+      .replace(/^#\/?/, "")
+      .split("/")
+      .map(part => {
+        try {
+          return decodeURIComponent(part);
+        } catch {
+          return part;
+        }
+      });
 
-    let id = "";
-    try {
-      id = decodeURIComponent(rest.join("/"));
-    } catch {
-      id = rest.join("/");
+    const [name, first = "", second = ""] = parts;
+
+    if (name === "sets") return { page: "sets" };
+    if (name === "model" && first && second) {
+      return { page: "set-detail", mref: first, sref: second };
+    }
+    if (name === "model" && first) {
+      return { page: "model-detail", mref: first };
+    }
+    if (name === "set" && first) {
+      return { page: "set-detail", legacyId: first };
     }
 
-    if (name === "sets") return { page: "sets", id: "" };
-    if (name === "model" && id) return { page: "model-detail", id };
-    if (name === "set" && id) return { page: "set-detail", id };
+    return { page: "models" };
+  }
 
-    return { page: "models", id: "" };
+  function resolveRoute(route) {
+    let modelId = null;
+    let setId = null;
+
+    if (route.page === "model-detail") {
+      modelId = findModelByRef(route.mref)?.id || null;
+    } else if (route.page === "set-detail") {
+      if (route.legacyId) {
+        const set = getSet(route.legacyId);
+        setId = set?.id || null;
+        modelId = set?.modelId || null;
+      } else {
+        const model = findModelByRef(route.mref);
+        modelId = model?.id || null;
+        setId = model ? findSetByRef(model.id, route.sref)?.id || null : null;
+      }
+    }
+
+    return { modelId, setId };
+  }
+
+  // Приводит адрес в строке браузера к актуальному виду
+  // (старые ссылки с id и переименованные адреса).
+  function syncHash() {
+    let target = null;
+
+    if (state.page === "model-detail" && getModel(state.selectedModelId)) {
+      target = modelHref(state.selectedModelId);
+    } else if (state.page === "set-detail" && getSet(state.viewedSetId)) {
+      target = setHref(state.viewedSetId);
+    }
+
+    if (!target) return;
+
+    const decode = value => {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
+
+    if (decode(location.hash) !== decode(target)) {
+      history.replaceState(
+        null,
+        "",
+        location.pathname + location.search + target
+      );
+    }
+
+    state.route = parseRoute();
   }
 
   function applyRoute(force = false) {
     const route = parseRoute();
-    const key = `${route.page}:${route.id}`;
+    const { modelId, setId } = resolveRoute(route);
 
-    if (!force && key === state.routeKey) return;
+    const key = [
+      route.page,
+      modelId || route.mref || route.legacyId || "",
+      setId || route.sref || ""
+    ].join(":");
+
+    state.route = route;
+
+    if (!force && key === state.routeKey) {
+      syncHash();
+      return;
+    }
+
     state.routeKey = key;
 
     // Открытая полноэкранная галерея не должна «переезжать» на другую страницу.
@@ -1178,10 +1390,10 @@
     state.viewedSetId = null;
 
     if (route.page === "model-detail") {
-      state.selectedModelId = route.id;
+      state.selectedModelId = modelId;
     } else if (route.page === "set-detail") {
-      state.viewedSetId = route.id;
-      state.selectedModelId = getSet(route.id)?.modelId || null;
+      state.viewedSetId = setId;
+      state.selectedModelId = modelId;
     }
 
     updateNavigation();
@@ -1189,6 +1401,7 @@
     if (route.page === "model-detail") renderModelDetail();
     if (route.page === "set-detail") renderSetDetail();
 
+    syncHash();
     updateDocumentTitle();
     window.scrollTo({ top: 0 });
   }
@@ -1237,6 +1450,29 @@
 
   /* -------------------- Модели -------------------- */
 
+  function updateSlugHints() {
+    const base = `${location.origin}${location.pathname}#/`;
+
+    const modelHint = $("#modelSlugHint");
+    if (modelHint) {
+      const value = slugify($("#modelSlug")?.value);
+      modelHint.textContent = value
+        ? `Ссылка: ${base}model/${value}`
+        : "Короткое имя для ссылки. Если оставить пустым — возьмётся из ника.";
+    }
+
+    const setHint = $("#setSlugHint");
+    if (setHint) {
+      const value = slugify($("#setSlug")?.value);
+      const model = getModel($("#setModelId")?.value);
+      const modelPart = model ? modelSlug(model) : "модель";
+
+      setHint.textContent = value
+        ? `Ссылка: ${base}model/${modelPart}/${value}`
+        : "Короткое имя для ссылки. Если оставить пустым — возьмётся из названия.";
+    }
+  }
+
   function openModelForm(model = null) {
     const form = $("#modelForm");
     if (!form) return;
@@ -1248,6 +1484,14 @@
     $("#modelUrl").value = model?.url || "";
     $("#modelTags").value = (model?.tags || []).join(", ");
     $("#modelNotes").value = model?.notes || "";
+
+    const slugInput = $("#modelSlug");
+    if (slugInput) {
+      slugInput.value = model ? modelSlug(model) : "";
+      // У существующей модели адрес не меняется сам при смене ника.
+      slugInput.dataset.touched = model ? "1" : "";
+    }
+    updateSlugHints();
 
     const heading = $("#modelDialog .dialog-heading h2");
     if (heading) {
@@ -1285,11 +1529,20 @@
       }
     }
 
+    const slug = slugify($("#modelSlug")?.value) || slugify(name) || "model";
+
+    if (state.models.some(item => item.id !== id && modelSlug(item) === slug)) {
+      showToast(`Адрес «${slug}» уже занят другой моделью. Выбери другой.`, "error");
+      $("#modelSlug")?.focus();
+      return;
+    }
+
     const previous = getModel(id);
 
     const model = {
       id,
       name,
+      slug,
       url,
       tags: parseTags($("#modelTags").value),
       notes: $("#modelNotes").value.trim(),
@@ -1376,6 +1629,12 @@
     $("#setTags").value = (set?.tags || []).join(", ");
     $("#setDescription").value = set?.description || "";
 
+    const setSlugInput = $("#setSlug");
+    if (setSlugInput) {
+      setSlugInput.value = set ? setSlug(set) : "";
+      setSlugInput.dataset.touched = set ? "1" : "";
+    }
+
     const modelSelect = $("#setModelId");
 
     if (modelSelect) {
@@ -1389,6 +1648,8 @@
       modelSelect.value =
         modelId || set?.modelId || state.models[0]?.id || "";
     }
+
+    updateSlugHints();
 
     const heading = $("#setDialog .dialog-heading h2");
     if (heading) {
@@ -1644,6 +1905,18 @@
       return;
     }
 
+    const slug = slugify($("#setSlug")?.value)
+      || slugify($("#setTitle").value || character)
+      || "set";
+
+    if (state.sets.some(
+      item => item.id !== id && item.modelId === modelId && setSlug(item) === slug
+    )) {
+      showToast(`У этой модели уже есть сет с адресом «${slug}». Выбери другой.`, "error");
+      $("#setSlug")?.focus();
+      return;
+    }
+
     const previous = getSet(id);
     const oldPhotoIds = new Set(previous?.photoIds || []);
 
@@ -1670,6 +1943,7 @@
     const setRecord = {
       id,
       modelId,
+      slug,
       character,
       title: $("#setTitle").value.trim(),
       rating: Number.isFinite(ratingValue)
@@ -1895,6 +2169,21 @@
 
   /* -------------------- Полноэкранная галерея -------------------- */
 
+  const zoom = {
+    scale: 1,
+    x: 0,
+    y: 0,
+    min: 1,
+    max: 8,
+    pointers: new Map(),
+    pinch: null,
+    drag: null,
+    lastTap: { time: 0, x: 0, y: 0 }
+  };
+
+  const canFullscreen = () =>
+    Boolean(document.documentElement.requestFullscreen);
+
   function openLightbox(setId, startIndex = 0) {
     const set = getSet(setId);
     if (!set) return;
@@ -1920,16 +2209,32 @@
 
     dialog.className = "photo-lightbox";
     dialog.innerHTML = `
+      <div class="lightbox-stage" id="lightboxStage">
+        <img id="lightboxImage" alt="" draggable="false">
+      </div>
       <button class="lightbox-close" type="button"
         data-action="close-lightbox" aria-label="Закрыть">×</button>
       <button class="lightbox-arrow previous" type="button"
         data-action="previous-photo" aria-label="Предыдущее фото">‹</button>
-      <img id="lightboxImage" alt="">
       <button class="lightbox-arrow next" type="button"
         data-action="next-photo" aria-label="Следующее фото">›</button>
       <span class="lightbox-counter" id="lightboxCounter"></span>
+      <div class="lightbox-toolbar" role="toolbar" aria-label="Масштаб">
+        <button type="button" data-action="zoom-out"
+          aria-label="Уменьшить" title="Уменьшить (−)">−</button>
+        <button type="button" data-action="zoom-reset" id="lightboxZoomLabel"
+          aria-label="Сбросить масштаб" title="Сбросить (0)">100%</button>
+        <button type="button" data-action="zoom-in"
+          aria-label="Увеличить" title="Увеличить (+)">+</button>
+        ${canFullscreen()
+          ? `<button type="button" data-action="fullscreen-toggle"
+               aria-label="На весь экран" title="На весь экран (F)">⛶</button>`
+          : ""}
+      </div>
     `;
 
+    bindLightboxStage($("#lightboxStage"));
+    resetZoom();
     renderLightboxPhoto();
     openDialog(dialog);
   }
@@ -1950,6 +2255,16 @@
       counter.textContent =
         `${state.lightboxIndex + 1} / ${state.lightboxPhotos.length}`;
     }
+
+    // Подгружаем соседние кадры, чтобы листание было мгновенным.
+    const count = state.lightboxPhotos.length;
+    if (count > 1) {
+      for (const shift of [-1, 1]) {
+        const neighbour =
+          state.lightboxPhotos[(state.lightboxIndex + shift + count) % count];
+        if (neighbour) new Image().src = photoURL(neighbour);
+      }
+    }
   }
 
   function moveLightbox(direction) {
@@ -1959,7 +2274,282 @@
     state.lightboxIndex =
       (state.lightboxIndex + direction + count) % count;
 
+    resetZoom();
     renderLightboxPhoto();
+  }
+
+  /* ----- Масштабирование и перемещение фото ----- */
+
+  function applyZoom() {
+    const image = $("#lightboxImage");
+    const stage = $("#lightboxStage");
+    const label = $("#lightboxZoomLabel");
+
+    if (image) {
+      image.style.transform =
+        `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.scale})`;
+    }
+
+    stage?.classList.toggle("is-zoomed", zoom.scale > 1.001);
+    if (label) label.textContent = `${Math.round(zoom.scale * 100)}%`;
+  }
+
+  function clampZoom() {
+    const stage = $("#lightboxStage");
+    const image = $("#lightboxImage");
+    if (!stage || !image) return;
+
+    zoom.scale = Math.min(zoom.max, Math.max(zoom.min, zoom.scale));
+
+    // Размеры без учёта transform: так считается реальный размер на экране.
+    const width = image.offsetWidth * zoom.scale;
+    const height = image.offsetHeight * zoom.scale;
+    const maxX = Math.max(0, (width - stage.clientWidth) / 2);
+    const maxY = Math.max(0, (height - stage.clientHeight) / 2);
+
+    zoom.x = maxX ? Math.min(maxX, Math.max(-maxX, zoom.x)) : 0;
+    zoom.y = maxY ? Math.min(maxY, Math.max(-maxY, zoom.y)) : 0;
+  }
+
+  function resetZoom() {
+    zoom.scale = 1;
+    zoom.x = 0;
+    zoom.y = 0;
+    zoom.pointers.clear();
+    zoom.pinch = null;
+    zoom.drag = null;
+    applyZoom();
+  }
+
+  // Приближение с сохранением точки под курсором/пальцами на месте.
+  // px, py — координаты относительно центра области просмотра.
+  function zoomAt(nextScale, px = 0, py = 0) {
+    const next = Math.min(zoom.max, Math.max(zoom.min, nextScale));
+    const ratio = next / zoom.scale;
+
+    zoom.x = px - (px - zoom.x) * ratio;
+    zoom.y = py - (py - zoom.y) * ratio;
+    zoom.scale = next;
+
+    if (next <= 1.001) {
+      zoom.x = 0;
+      zoom.y = 0;
+    }
+
+    clampZoom();
+    applyZoom();
+  }
+
+  function zoomBy(factor) {
+    zoomAt(zoom.scale * factor);
+  }
+
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+      return;
+    }
+
+    // Модальный <dialog> нельзя развернуть сам (браузер отказывает),
+    // поэтому разворачиваем страницу целиком.
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      showToast("Браузер не разрешил полноэкранный режим.");
+      return;
+    }
+
+    // Страница в полноэкранном режиме попадает в top layer выше окна просмотра —
+    // открываем окно заново, чтобы оно снова оказалось сверху.
+    const dialog = $("#photoDialog");
+
+    if (dialog?.open) {
+      state.reopeningLightbox = true;
+      dialog.close();
+      dialog.showModal();
+    }
+  }
+
+  function bindLightboxStage(stage) {
+    if (!stage) return;
+
+    const centerOf = (clientX, clientY) => {
+      const rect = stage.getBoundingClientRect();
+
+      return {
+        x: clientX - (rect.left + rect.width / 2),
+        y: clientY - (rect.top + rect.height / 2)
+      };
+    };
+
+    // Колесо мыши и жест «щипок» на тачпаде.
+    stage.addEventListener("wheel", event => {
+      event.preventDefault();
+
+      let delta = event.deltaY;
+      if (event.deltaMode === 1) delta *= 16;
+      if (event.deltaMode === 2) delta *= 400;
+
+      const speed = event.ctrlKey ? 0.01 : 0.0022;
+      const point = centerOf(event.clientX, event.clientY);
+
+      zoomAt(zoom.scale * Math.exp(-delta * speed), point.x, point.y);
+    }, { passive: false });
+
+    stage.addEventListener("pointerdown", event => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      stage.setPointerCapture?.(event.pointerId);
+      zoom.pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      if (zoom.pointers.size === 2) {
+        const [a, b] = [...zoom.pointers.values()];
+
+        zoom.pinch = {
+          distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          scale: zoom.scale,
+          cx: (a.x + b.x) / 2,
+          cy: (a.y + b.y) / 2
+        };
+        zoom.drag = null;
+      } else if (zoom.pointers.size === 1) {
+        zoom.drag = {
+          startX: event.clientX,
+          startY: event.clientY,
+          originX: zoom.x,
+          originY: zoom.y,
+          moved: false,
+          time: Date.now(),
+          onImage: event.target.id === "lightboxImage"
+        };
+      }
+    });
+
+    stage.addEventListener("pointermove", event => {
+      if (!zoom.pointers.has(event.pointerId)) return;
+
+      zoom.pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY
+      });
+
+      if (zoom.pinch && zoom.pointers.size >= 2) {
+        const [a, b] = [...zoom.pointers.values()];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const cx = (a.x + b.x) / 2;
+        const cy = (a.y + b.y) / 2;
+
+        // Сначала сдвигаем вместе с пальцами, потом масштабируем.
+        zoom.x += cx - zoom.pinch.cx;
+        zoom.y += cy - zoom.pinch.cy;
+        zoom.pinch.cx = cx;
+        zoom.pinch.cy = cy;
+
+        const point = centerOf(cx, cy);
+
+        zoomAt(
+          zoom.pinch.scale * (distance / zoom.pinch.distance),
+          point.x,
+          point.y
+        );
+        return;
+      }
+
+      if (!zoom.drag) return;
+
+      const dx = event.clientX - zoom.drag.startX;
+      const dy = event.clientY - zoom.drag.startY;
+
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) zoom.drag.moved = true;
+
+      if (zoom.scale > 1.001) {
+        zoom.x = zoom.drag.originX + dx;
+        zoom.y = zoom.drag.originY + dy;
+        clampZoom();
+        applyZoom();
+        stage.classList.add("is-dragging");
+      }
+    });
+
+    const finish = event => {
+      if (!zoom.pointers.has(event.pointerId)) return;
+
+      const drag = zoom.drag;
+      zoom.pointers.delete(event.pointerId);
+      stage.classList.remove("is-dragging");
+
+      if (zoom.pinch) {
+        if (zoom.pointers.size < 2) zoom.pinch = null;
+
+        // Остался один палец — продолжаем перемещение от него.
+        if (zoom.pointers.size === 1) {
+          const [rest] = [...zoom.pointers.values()];
+
+          zoom.drag = {
+            startX: rest.x,
+            startY: rest.y,
+            originX: zoom.x,
+            originY: zoom.y,
+            moved: true,
+            time: 0,
+            onImage: true
+          };
+        }
+        return;
+      }
+
+      if (!drag || zoom.pointers.size > 0) return;
+      zoom.drag = null;
+
+      if (event.type === "pointercancel") return;
+
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+
+      // Свайп влево/вправо листает фото, пока оно не приближено.
+      if (
+        zoom.scale <= 1.001
+        && Math.abs(dx) > 60
+        && Math.abs(dx) > Math.abs(dy) * 1.5
+      ) {
+        moveLightbox(dx < 0 ? 1 : -1);
+        return;
+      }
+
+      if (drag.moved) return;
+
+      // Двойной тап / двойной клик: приближение и возврат.
+      const now = Date.now();
+      const last = zoom.lastTap;
+      const isDouble =
+        now - last.time < 320
+        && Math.hypot(event.clientX - last.x, event.clientY - last.y) < 30;
+
+      if (isDouble) {
+        zoom.lastTap = { time: 0, x: 0, y: 0 };
+
+        if (zoom.scale > 1.05) {
+          zoomAt(1);
+        } else {
+          const point = centerOf(event.clientX, event.clientY);
+          zoomAt(2.5, point.x, point.y);
+        }
+        return;
+      }
+
+      zoom.lastTap = { time: now, x: event.clientX, y: event.clientY };
+
+      // Клик по пустому фону (не по фото) закрывает просмотр.
+      if (!drag.onImage && zoom.scale <= 1.001) {
+        closeDialog($("#photoDialog"));
+      }
+    };
+
+    stage.addEventListener("pointerup", finish);
+    stage.addEventListener("pointercancel", finish);
   }
 
   /* -------------------- Резервные копии -------------------- */
@@ -2653,6 +3243,22 @@
       case "next-photo":
         moveLightbox(1);
         break;
+
+      case "zoom-in":
+        zoomBy(1.5);
+        break;
+
+      case "zoom-out":
+        zoomBy(1 / 1.5);
+        break;
+
+      case "zoom-reset":
+        zoomAt(1);
+        break;
+
+      case "fullscreen-toggle":
+        toggleFullscreen();
+        break;
     }
   }
 
@@ -2720,6 +3326,36 @@
     });
 
     // Формы.
+    // Автозаполнение адресов, пока пользователь не правил их вручную.
+    $("#modelName")?.addEventListener("input", () => {
+      const input = $("#modelSlug");
+      if (input && !input.dataset.touched) {
+        input.value = slugify($("#modelName").value);
+      }
+      updateSlugHints();
+    });
+
+    $("#modelSlug")?.addEventListener("input", () => {
+      $("#modelSlug").dataset.touched = "1";
+      updateSlugHints();
+    });
+
+    const syncSetSlug = () => {
+      const input = $("#setSlug");
+      if (input && !input.dataset.touched) {
+        input.value = slugify($("#setTitle").value || $("#setCharacter").value);
+      }
+      updateSlugHints();
+    };
+
+    $("#setTitle")?.addEventListener("input", syncSetSlug);
+    $("#setCharacter")?.addEventListener("input", syncSetSlug);
+    $("#setModelId")?.addEventListener("change", updateSlugHints);
+    $("#setSlug")?.addEventListener("input", () => {
+      $("#setSlug").dataset.touched = "1";
+      updateSlugHints();
+    });
+
     $("#modelForm")?.addEventListener("submit", saveModel);
     $("#setForm")?.addEventListener("submit", saveSet);
 
@@ -2840,12 +3476,44 @@
     // Полноэкранный просмотр фото: закрытие кликом по фону.
     const photoDialog = $("#photoDialog");
     if (photoDialog) {
+      // Закрыли просмотр — выходим и из полноэкранного режима.
+      photoDialog.addEventListener("close", () => {
+        if (state.reopeningLightbox) {
+          state.reopeningLightbox = false;
+          return;
+        }
+
+        if (document.fullscreenElement) document.exitFullscreen?.();
+        resetZoom();
+      });
+
       photoDialog.addEventListener("click", event => {
         if (event.target === photoDialog) {
           closeDialog(photoDialog);
         }
       });
     }
+
+    // Смена размера окна / входа-выхода из полноэкранного режима.
+    const refit = () => {
+      if ($("#photoDialog")?.open) {
+        clampZoom();
+        applyZoom();
+      }
+    };
+
+    window.addEventListener("resize", refit);
+    document.addEventListener("fullscreenchange", () => {
+      refit();
+
+      const button = $('[data-action="fullscreen-toggle"]');
+      if (button) {
+        button.textContent = document.fullscreenElement ? "🗗" : "⛶";
+        button.title = document.fullscreenElement
+          ? "Выйти из полного экрана (F)"
+          : "На весь экран (F)";
+      }
+    });
 
     // Клик по логотипу возвращает на главную.
     $("#brandHome")?.addEventListener("click", event => {
@@ -2868,6 +3536,16 @@
           moveLightbox(-1);
         } else if (event.key === "ArrowRight") {
           moveLightbox(1);
+        } else if (["+", "=", "NumpadAdd"].includes(event.key)
+          || event.code === "NumpadAdd") {
+          zoomBy(1.5);
+        } else if (["-", "_"].includes(event.key)
+          || event.code === "NumpadSubtract") {
+          zoomBy(1 / 1.5);
+        } else if (event.key === "0") {
+          zoomAt(1);
+        } else if (event.code === "KeyF" && canFullscreen()) {
+          toggleFullscreen();
         }
 
         return;
