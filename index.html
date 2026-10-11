@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17131f">
+  <meta
+    name="description"
+    content="Личный каталог косплей-моделей, персонажей и фотосетов."
+  >
+
+  <title>Cosplay Archive</title>
+
+  <link
+    rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
+  >
+
+  <link rel="stylesheet" href="css/style.css">
+
+  <script src="js/config.js?v=3" defer></script>
+  <script src="js/drive.js?v=3" defer></script>
+  <script src="js/app.js?v=3" defer></script>
+</head>
+
+<body>
+  <!-- Верхняя панель -->
+  <header class="topbar">
+    <a class="brand" href="#" id="brandHome" aria-label="Cosplay Archive">
+      <span class="brand-mark">CA</span>
+      <span class="brand-name">Cosplay <strong>Archive</strong></span>
+    </a>
+
+    <nav class="main-nav" aria-label="Основная навигация">
+      <button
+        class="nav-link active"
+        type="button"
+        data-page="models"
+        aria-current="page"
+      >
+        Модели
+      </button>
+
+      <button
+        class="nav-link"
+        type="button"
+        data-page="sets"
+      >
+        Все сеты
+      </button>
+    </nav>
+
+    <div class="top-actions">
+      <button class="button button-quiet" type="button" id="randomSetBtn">
+        Случайный сет
+      </button>
+
+      <button class="button button-primary" type="button" id="addMainBtn">
+        + Добавить
+      </button>
+    </div>
+  </header>
+
+  <main class="main-content">
+
+    <!-- Страница моделей -->
+    <section class="page" id="page-models">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">ТВОЯ КОЛЛЕКЦИЯ</p>
+          <h1>Модели</h1>
+          <p class="subheading">
+            Косплеерши, их персонажи и фотосеты.
+          </p>
+        </div>
+
+        <button class="button button-primary" id="addModelBtn" type="button">
+          + Добавить модель
+        </button>
+      </div>
+
+      <div class="toolbar">
+        <label class="searchbox">
+          <input
+            id="modelSearch"
+            type="search"
+            placeholder="Поиск по моделям и тегам"
+            autocomplete="off"
+          >
+        </label>
+
+        <label class="visually-hidden" for="modelSort">
+          Сортировка моделей
+        </label>
+
+        <select id="modelSort">
+          <option value="updated">Недавно изменённые</option>
+          <option value="name">По имени</option>
+          <option value="sets">По количеству сетов</option>
+        </select>
+      </div>
+
+      <div class="card-grid" id="modelsGrid"></div>
+
+      <div class="empty-state" id="modelsEmpty">
+        <div class="empty-icon" aria-hidden="true">✦</div>
+        <h2>Архив пока пуст</h2>
+        <p>Добавь первую модель, а затем создай для неё сет.</p>
+        <button
+          class="button button-primary"
+          id="emptyAddModelBtn"
+          type="button"
+        >
+          Добавить модель
+        </button>
+      </div>
+    </section>
+
+    <!-- Общий каталог сетов -->
+    <section class="page hidden" id="page-sets">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">ОБЩИЙ КАТАЛОГ</p>
+          <h1>Все сеты</h1>
+          <p class="subheading">
+            Фотосеты всех косплеерш в одной ленте.
+          </p>
+        </div>
+
+        <button class="button button-primary" id="addSetBtn" type="button">
+          + Добавить сет
+        </button>
+      </div>
+
+      <div class="toolbar">
+        <label class="searchbox">
+          <input
+            id="setSearch"
+            type="search"
+            placeholder="Персонаж, модель, название или тег"
+            autocomplete="off"
+          >
+        </label>
+
+        <label class="visually-hidden" for="setModelFilter">
+          Фильтр по модели
+        </label>
+        <select id="setModelFilter">
+          <option value="">Все модели</option>
+        </select>
+
+        <label class="visually-hidden" for="setSort">
+          Сортировка сетов
+        </label>
+        <select id="setSort">
+          <option value="newest">Сначала новые</option>
+          <option value="oldest">Сначала старые</option>
+          <option value="photos">Больше фотографий</option>
+          <option value="rating">По рейтингу</option>
+          <option value="name">По персонажу</option>
+        </select>
+
+        <label class="check-filter">
+          <input type="checkbox" id="favoritesOnly">
+          Только избранное
+        </label>
+      </div>
+
+      <div class="tag-chips" id="tagChips"></div>
+
+      <div class="card-grid" id="setsGrid"></div>
+
+      <div class="empty-state hidden" id="setsEmpty">
+        <div class="empty-icon" aria-hidden="true">▧</div>
+        <h2>Сетов пока нет</h2>
+        <p>
+          Создай сет и добавь фотографии. Он появится здесь
+          и на странице соответствующей модели.
+        </p>
+        <button
+          class="button button-primary"
+          id="emptyAddSetBtn"
+          type="button"
+        >
+          Добавить сет
+        </button>
+      </div>
+    </section>
+
+    <!-- Страница отдельной модели -->
+    <section class="page hidden" id="page-model-detail">
+      <button class="back-link" id="backToModels" type="button">
+        ← Все модели
+      </button>
+
+      <div id="modelDetailHeader"></div>
+
+      <div class="section-heading">
+        <div>
+          <h2>Сеты модели</h2>
+          <p class="subheading">
+            Все фотосеты этой косплеерши.
+          </p>
+        </div>
+
+        <button
+          class="button button-primary"
+          id="addSetForModelBtn"
+          type="button"
+        >
+          + Добавить сет
+        </button>
+      </div>
+
+      <div class="card-grid" id="modelSetsGrid"></div>
+
+      <div class="empty-state hidden" id="modelSetsEmpty">
+        <h2>Сетов пока нет</h2>
+        <p>Добавь первый фотосет этой модели.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Подвал -->
+  <footer class="footer">
+    <span>Cosplay Archive</span>
+    <span id="footerStats">
+      Локальный архив · данные хранятся в этом браузере
+    </span>
+
+    <button class="text-button" id="backupBtn" type="button">
+      Экспорт каталога
+    </button>
+
+    <label class="text-button import-label">
+      Импорт каталога
+      <input
+        type="file"
+        id="importInput"
+        accept=".json,application/json"
+        hidden
+      >
+    </label>
+
+    <div class="drive-bar" id="driveBar">
+      <button class="text-button" type="button" id="driveConnectBtn">
+        Подключить Google Drive
+      </button>
+
+      <button class="text-button hidden" type="button" id="driveSyncBtn">
+        Синхронизировать
+      </button>
+
+      <button class="text-button hidden" type="button" id="driveSignOutBtn">
+        Отключить Drive
+      </button>
+
+      <span class="drive-status" id="driveStatus"></span>
+    </div>
+  </footer>
+
+  <!-- Окно добавления или редактирования модели -->
+  <dialog id="modelDialog" class="dialog">
+    <form id="modelForm" class="dialog-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">КАРТОЧКА МОДЕЛИ</p>
+          <h2 id="modelDialogTitle">Добавить модель</h2>
+        </div>
+
+        <button
+          class="icon-button"
+          type="button"
+          data-close="modelDialog"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+      </div>
+
+      <input type="hidden" id="modelId">
+
+      <label for="modelName">
+        Ник косплеерши <span class="required">*</span>
+        <input
+          id="modelName"
+          type="text"
+          maxlength="100"
+          required
+          placeholder="Например, Nika"
+        >
+      </label>
+
+      <label for="modelUrl">
+        Ссылка на страницу
+        <input
+          id="modelUrl"
+          type="url"
+          placeholder="https://..."
+        >
+      </label>
+
+      <label for="modelTags">
+        Теги модели
+        <input
+          id="modelTags"
+          type="text"
+          placeholder="cosplay, photographer"
+        >
+        <small>Разделяй теги запятыми.</small>
+      </label>
+
+      <label for="modelNotes">
+        Заметки
+        <textarea
+          id="modelNotes"
+          rows="3"
+          placeholder="Дополнительная информация"
+        ></textarea>
+      </label>
+
+      <div class="dialog-actions">
+        <button
+          class="button button-quiet"
+          type="button"
+          data-close="modelDialog"
+        >
+          Отмена
+        </button>
+
+        <button class="button button-primary" type="submit">
+          Сохранить модель
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Окно добавления или редактирования сета -->
+  <dialog id="setDialog" class="dialog dialog-wide">
+    <form id="setForm" class="dialog-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ФОТОСЕТ</p>
+          <h2 id="setDialogTitle">Добавить сет</h2>
+        </div>
+
+        <button
+          class="icon-button"
+          type="button"
+          data-close="setDialog"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+      </div>
+
+      <input type="hidden" id="setId">
+
+      <div class="form-grid">
+        <label for="setModelId">
+          Косплеерша <span class="required">*</span>
+          <select id="setModelId" required>
+            <option value="">Сначала добавь модель</option>
+          </select>
+        </label>
+
+        <label for="setCharacter">
+          Персонаж <span class="required">*</span>
+          <input
+            id="setCharacter"
+            type="text"
+            maxlength="120"
+            required
+            placeholder="Например, Tifa Lockhart"
+          >
+        </label>
+
+        <label class="full-width" for="setTitle">
+          Название сета (необязательно)
+          <input
+            id="setTitle"
+            type="text"
+            maxlength="140"
+            placeholder="По умолчанию — имя персонажа"
+          >
+        </label>
+
+        <label for="setRating">
+          Личный рейтинг от 1 до 5
+          <input
+            id="setRating"
+            type="number"
+            min="1"
+            max="5"
+            step="1"
+            placeholder="Не оценён"
+          >
+        </label>
+
+        <label for="setDate">
+          Дата добавления
+          <input id="setDate" type="date">
+        </label>
+
+        <label class="full-width" for="setTags">
+          Хештеги
+          <input
+            id="setTags"
+            type="text"
+            placeholder="finalfantasy, gaming, tifa"
+          >
+          <small>Можно вводить с # или без него.</small>
+        </label>
+
+        <label class="full-width" for="setDescription">
+          Описание
+          <textarea
+            id="setDescription"
+            rows="3"
+            placeholder="Описание, источник, заметки"
+          ></textarea>
+        </label>
+      </div>
+
+      <div class="upload-panel">
+        <div>
+          <h3>Фотографии</h3>
+          <p class="muted">
+            Можно выбрать сразу несколько изображений.
+          </p>
+        </div>
+
+        <label class="button button-quiet upload-button">
+          + Выбрать фотографии
+          <input
+            id="setPhotos"
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+          >
+        </label>
+
+        <div class="photo-manager" id="existingPhotos"></div>
+        <p class="muted small" id="newPhotosLabel"></p>
+      </div>
+
+      <div class="dialog-actions">
+        <button
+          class="button button-quiet"
+          type="button"
+          data-close="setDialog"
+        >
+          Отмена
+        </button>
+
+        <button class="button button-primary" type="submit">
+          Сохранить сет
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Просмотр сета -->
+  <dialog id="setViewDialog" class="dialog view-set-dialog">
+    <div class="dialog-form gallery-dialog-inner">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow" id="viewModelName">КОСПЛЕЕРША</p>
+          <h2 id="viewSetTitle">Название сета</h2>
+          <p id="viewSetMeta" class="muted"></p>
+        </div>
+
+        <button
+          class="icon-button"
+          type="button"
+          data-close="setViewDialog"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="tag-chips" id="viewSetTags"></div>
+      <p class="view-description" id="viewSetDescription"></p>
+      <div class="photo-gallery" id="viewGallery"></div>
+
+      <div class="dialog-actions gallery-actions">
+        <button class="button button-quiet" id="viewFavoriteBtn" type="button">
+          ☆ В избранное
+        </button>
+
+        <button class="button button-quiet" id="editViewedSetBtn" type="button">
+          Редактировать
+        </button>
+
+        <button class="button button-danger" id="deleteViewedSetBtn" type="button">
+          Удалить сет
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Полноэкранный просмотр фотографии -->
+  <dialog id="photoDialog" class="photo-lightbox"></dialog>
+
+  <!-- Уведомления -->
+  <div
+    id="toast"
+    class="toast hidden"
+    role="status"
+    aria-live="polite"
+    popover="manual"
+  ></div>
+</body>
+</html>

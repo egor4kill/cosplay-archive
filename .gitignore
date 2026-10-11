@@ -1,0 +1,13 @@
+# Архивы и бэкапы
+*.rar
+*.zip
+*.7z
+
+# Системное
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Редакторы
+.vscode/
+.idea/
