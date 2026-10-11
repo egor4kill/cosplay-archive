@@ -6,33 +6,43 @@
 :root {
   color-scheme: dark;
 
-  --bg: #100e17;
-  --bg-soft: #171420;
-  --surface: #1e1a2a;
-  --surface-hover: #292337;
-  --surface-raised: #252031;
-  --border: #373044;
-  --border-light: #484057;
+  --bg: #0c0a12;
+  --bg-soft: #13101c;
+  --surface: #191524;
+  --surface-hover: #221d30;
+  --surface-raised: #201b2c;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-light: rgba(255, 255, 255, 0.13);
 
-  --text: #f4f0fa;
-  --text-secondary: #b5adbf;
-  --text-muted: #81788f;
+  --text: #f5f2fb;
+  --text-secondary: #bab2c8;
+  --text-muted: #948ca6;
 
-  --accent: #b69aff;
+  --accent: #b79bff;
   --accent-strong: #a17cf5;
-  --accent-soft: rgba(182, 154, 255, 0.13);
-  --accent-border: rgba(182, 154, 255, 0.35);
+  --accent-deep: #7c5cf0;
+  --accent-soft: rgba(183, 155, 255, 0.12);
+  --accent-border: rgba(183, 155, 255, 0.34);
+  --glow: rgba(140, 104, 238, 0.35);
 
   --danger: #ff8298;
   --success: #8be0bd;
 
-  --radius-sm: 9px;
+  --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 26px;
 
-  --shadow: 0 18px 60px rgba(0, 0, 0, 0.3);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  --shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.3);
   --content-width: 1440px;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-display:
+    "Space Grotesk", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  --font-body:
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* -------------------- Сброс и база -------------------- */
@@ -54,18 +64,28 @@ body {
   margin: 0;
   background:
     radial-gradient(
-      ellipse at 50% -15%,
-      rgba(115, 79, 175, 0.14),
-      transparent 48%
+      1100px 540px at 50% -12%,
+      rgba(124, 92, 240, 0.22),
+      transparent 60%
+    ),
+    radial-gradient(
+      960px 620px at 100% 0%,
+      rgba(255, 108, 170, 0.06),
+      transparent 55%
+    ),
+    radial-gradient(
+      820px 620px at -8% 34%,
+      rgba(90, 140, 255, 0.05),
+      transparent 55%
     ),
     var(--bg);
+  background-attachment: fixed;
   color: var(--text);
-  font-family:
-    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, sans-serif;
+  font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -1600,6 +1620,325 @@ input[type="checkbox"] {
   color: var(--text);
 }
 
+/* =========================================================
+   DESIGN REFRESH (v5) — уточнение визуального языка
+   ========================================================= */
+
+/* -------------------- Типографика -------------------- */
+
+h1,
+h2,
+h3,
+.brand-name,
+.page-heading h1,
+.page-heading h2,
+.section-heading h2,
+.dialog-heading h2,
+.model-detail-hero h1,
+.view-set-heading h2,
+.empty-state h2,
+.empty-state h3,
+.card-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.page-heading h1,
+.page-heading h2 {
+  font-weight: 700;
+  letter-spacing: -0.032em;
+}
+
+.section-heading h2 {
+  font-weight: 600;
+}
+
+.eyebrow {
+  color: #c8b5ff;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+
+/* -------------------- Верхняя панель -------------------- */
+
+.topbar {
+  border-bottom: 1px solid var(--border);
+  background: rgba(12, 10, 18, 0.72);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+.brand-mark {
+  border: 1px solid rgba(214, 198, 255, 0.42);
+  border-radius: 13px;
+  background: linear-gradient(150deg, #b79bff, #6a49b0);
+  box-shadow:
+    0 6px 22px rgba(133, 91, 210, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.brand-name {
+  font-weight: 600;
+}
+
+.nav-link {
+  border-radius: 12px;
+  transition:
+    background 160ms var(--ease),
+    color 160ms var(--ease),
+    border-color 160ms var(--ease);
+}
+
+.nav-link:hover {
+  background: var(--surface);
+}
+
+.nav-link.active,
+.nav-link[aria-current="page"] {
+  border-color: var(--accent-border);
+  background: linear-gradient(
+    150deg,
+    rgba(183, 155, 255, 0.2),
+    rgba(183, 155, 255, 0.07)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  color: #eadfff;
+}
+
+/* -------------------- Кнопки -------------------- */
+
+.button {
+  border-radius: 12px;
+  transition:
+    background 180ms var(--ease),
+    border-color 180ms var(--ease),
+    transform 180ms var(--ease),
+    box-shadow 180ms var(--ease),
+    color 180ms var(--ease);
+}
+
+.button:hover {
+  transform: translateY(-1px);
+}
+
+.button:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.button-primary {
+  background: linear-gradient(135deg, #c6adff, #9670ee);
+  box-shadow:
+    0 8px 24px rgba(140, 104, 238, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  color: #17102a;
+}
+
+.button-primary:hover {
+  background: linear-gradient(135deg, #d3c0ff, #a280f5);
+  box-shadow:
+    0 12px 30px rgba(140, 104, 238, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  color: #17102a;
+}
+
+/* -------------------- Поиск и фильтры -------------------- */
+
+.searchbox input {
+  border-radius: 12px;
+  background: #130f1b;
+}
+
+.searchbox input:focus,
+.dialog-form > input:focus,
+.dialog-form > textarea:focus,
+.dialog-form > label > input:focus,
+.dialog-form > label > textarea:focus,
+.dialog-form > label > select:focus,
+.form-grid > label > input:focus,
+.form-grid > label > textarea:focus,
+.form-grid > label > select:focus {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(183, 155, 255, 0.14);
+}
+
+/* -------------------- Карточки -------------------- */
+
+.archive-card {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(155deg, #1e1928, #151220 74%);
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform 220ms var(--ease),
+    border-color 220ms var(--ease),
+    box-shadow 220ms var(--ease);
+}
+
+.archive-card::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 12px;
+  left: 12px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.14),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.archive-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-border);
+  box-shadow:
+    0 22px 46px rgba(0, 0, 0, 0.36),
+    0 0 0 1px rgba(183, 155, 255, 0.12);
+}
+
+.card-cover::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to top,
+    rgba(9, 7, 15, 0.6),
+    transparent 42%
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.card-cover .favorite-toggle,
+.card-count {
+  z-index: 3;
+}
+
+.card-cover img {
+  transition: transform 400ms var(--ease);
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.card-menu-toggle {
+  border-radius: 10px;
+}
+
+.card-menu {
+  min-width: 190px;
+  border-radius: 13px;
+  background: #211c2d;
+  box-shadow:
+    0 22px 50px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* -------------------- Пустые состояния -------------------- */
+
+.empty-state {
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(
+      ellipse at 50% 0%,
+      rgba(183, 155, 255, 0.08),
+      transparent 62%
+    ),
+    rgba(24, 20, 33, 0.55);
+}
+
+.empty-icon {
+  border-radius: 20px;
+  background: linear-gradient(150deg, #2a2338, #1a1625);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* -------------------- Hero модели -------------------- */
+
+.model-detail-hero {
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(
+      ellipse at 0% 0%,
+      rgba(183, 155, 255, 0.13),
+      transparent 58%
+    ),
+    linear-gradient(150deg, #1d1828, #15121f);
+}
+
+/* -------------------- Диалоги и формы -------------------- */
+
+.dialog {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  background: #16121f;
+  box-shadow:
+    0 40px 90px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.dialog::backdrop {
+  background: rgba(6, 5, 10, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.dialog-form > input,
+.dialog-form > textarea,
+.dialog-form > label > input,
+.dialog-form > label > textarea,
+.dialog-form > label > select,
+.form-grid > label > input,
+.form-grid > label > textarea,
+.form-grid > label > select {
+  border-radius: 11px;
+  background: #120f1a;
+}
+
+.upload-panel {
+  border-radius: 16px;
+  background: rgba(183, 155, 255, 0.04);
+  transition:
+    border-color 180ms var(--ease),
+    background 180ms var(--ease),
+    box-shadow 180ms var(--ease);
+}
+
+.upload-panel.is-dragover {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    0 0 0 6px rgba(183, 155, 255, 0.1);
+}
+
+/* -------------------- Галерея и подвал -------------------- */
+
+.photo-gallery button {
+  border-radius: 14px;
+  transition:
+    border-color 200ms var(--ease),
+    transform 200ms var(--ease),
+    box-shadow 200ms var(--ease);
+}
+
+.photo-gallery button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.4);
+}
+
+.footer {
+  border-top: 1px solid var(--border);
+}
+
+.toast {
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  background: #241e32;
+  box-shadow: var(--shadow);
+  animation: toast-appear 200ms var(--ease) both;
+}
+
 /* -------------------- Адаптация -------------------- */
 
 @media (max-width: 1150px) {
@@ -1933,5 +2272,20 @@ input[type="checkbox"] {
     width: 100%;
     background: var(--accent);
     transform: none;
+  }
+}
+
+/* -------------------- Крупные тач-цели на мобильных -------------------- */
+
+@media (max-width: 560px) {
+  .card-menu-toggle {
+    width: 40px;
+    height: 40px;
+    font-size: 19px;
+  }
+
+  .favorite-toggle {
+    width: 36px;
+    height: 36px;
   }
 }
