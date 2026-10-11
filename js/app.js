@@ -337,6 +337,7 @@
     page: "models",
     selectedModelId: null,
     viewedSetId: null,
+    routeKey: "",
     activeTag: "",
     lightboxPhotos: [],
     lightboxIndex: 0,
@@ -704,6 +705,14 @@
     `;
   }
 
+  function modelHref(id) {
+    return `#/model/${encodeURIComponent(id)}`;
+  }
+
+  function setHref(id) {
+    return `#/set/${encodeURIComponent(id)}`;
+  }
+
   function renderModelCard(model) {
     const setsCount = countModelSets(model.id);
     const tags = model.tags || [];
@@ -713,18 +722,19 @@
     return `
       <article class="archive-card model-card" data-model-id="${escapeHTML(model.id)}"
         data-action="open-model" data-id="${escapeHTML(model.id)}">
-        <button class="card-cover" type="button"
-          data-action="open-model" data-id="${escapeHTML(model.id)}"
+        <a class="card-cover" href="${modelHref(model.id)}"
           aria-label="Открыть модель ${escapeHTML(model.name)}">
           ${coverURL
             ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}" loading="lazy">`
             : `<div class="cover-placeholder">
                  ${escapeHTML(getModelInitial(model))}
                </div>`}
-        </button>
+        </a>
 
         <div class="card-info">
-          <h3 class="card-title">${escapeHTML(model.name)}</h3>
+          <h3 class="card-title">
+            <a href="${modelHref(model.id)}">${escapeHTML(model.name)}</a>
+          </h3>
           ${model.url
             ? `<p class="card-subtitle">
                  <a href="${escapeHTML(model.url)}" target="_blank"
@@ -754,8 +764,7 @@
     return `
       <article class="archive-card set-card" data-set-id="${escapeHTML(set.id)}"
         data-action="view-set" data-id="${escapeHTML(set.id)}">
-        <button class="card-cover" type="button"
-          data-action="view-set" data-id="${escapeHTML(set.id)}"
+        <a class="card-cover" href="${setHref(set.id)}"
           aria-label="Открыть сет ${escapeHTML(set.character)}">
           ${image
             ? `<img src="${image}" alt="${escapeHTML(set.character)}" loading="lazy">`
@@ -763,7 +772,7 @@
           <span class="card-count">
             ${photoCount} ${pluralize(photoCount, "фото", "фото", "фото")}
           </span>
-        </button>
+        </a>
 
         <button class="favorite-toggle ${set.favorite ? "is-favorite" : ""}"
           type="button" data-action="favorite-set"
@@ -775,7 +784,9 @@
 
         <div class="card-info">
           <h3 class="card-title">
-            ${escapeHTML(set.title || set.character || "Без названия")}
+            <a href="${setHref(set.id)}">
+              ${escapeHTML(set.title || set.character || "Без названия")}
+            </a>
           </h3>
           <p class="card-subtitle">
             ${escapeHTML(set.character || "Персонаж не указан")}
@@ -992,7 +1003,14 @@
     const empty = $("#modelSetsEmpty");
 
     if (!model) {
-      navigate("models");
+      if (header) {
+        header.innerHTML = renderNotFound(
+          "Модель не найдена",
+          "Возможно, она удалена или ещё не синхронизировалась на этом устройстве."
+        );
+      }
+      if (grid) grid.innerHTML = "";
+      hideEmpty(empty);
       return;
     }
 
@@ -1082,10 +1100,13 @@
 
     if (state.page === "model-detail") {
       renderModelDetail();
+    } else if (state.page === "set-detail") {
+      renderSetDetail();
     }
 
     renderStats();
     updateNavigation();
+    updateDocumentTitle();
   }
 
   function updateNavigation() {
@@ -1107,26 +1128,111 @@
 
     $$(".page").forEach(page => page.classList.add("hidden"));
 
-    const pageId = state.page === "model-detail"
-      ? "#page-model-detail"
-      : `#page-${state.page}`;
-
-    $(pageId)?.classList.remove("hidden");
+    $(`#page-${state.page}`)?.classList.remove("hidden");
   }
 
-  function navigate(page) {
-    if (!["models", "sets", "model-detail"].includes(page)) {
-      page = "models";
+  /* -------------------- Маршруты (адреса страниц) --------------------
+     #/                 — модели
+     #/sets             — все сеты
+     #/model/<id>       — страница модели
+     #/set/<id>         — страница сета
+  ------------------------------------------------------------------- */
+
+  function routeHash(page, id) {
+    if (page === "sets") return "#/sets";
+    if (page === "model-detail" && id) return modelHref(id);
+    if (page === "set-detail" && id) return setHref(id);
+    return "#/";
+  }
+
+  function parseRoute() {
+    const raw = location.hash.replace(/^#\/?/, "");
+    const [name, ...rest] = raw.split("/");
+
+    let id = "";
+    try {
+      id = decodeURIComponent(rest.join("/"));
+    } catch {
+      id = rest.join("/");
     }
 
-    state.page = page;
+    if (name === "sets") return { page: "sets", id: "" };
+    if (name === "model" && id) return { page: "model-detail", id };
+    if (name === "set" && id) return { page: "set-detail", id };
+
+    return { page: "models", id: "" };
+  }
+
+  function applyRoute(force = false) {
+    const route = parseRoute();
+    const key = `${route.page}:${route.id}`;
+
+    if (!force && key === state.routeKey) return;
+    state.routeKey = key;
+
+    // Открытая полноэкранная галерея не должна «переезжать» на другую страницу.
+    closeDialog($("#photoDialog"));
+
+    state.page = route.page;
+    state.selectedModelId = null;
+    state.viewedSetId = null;
+
+    if (route.page === "model-detail") {
+      state.selectedModelId = route.id;
+    } else if (route.page === "set-detail") {
+      state.viewedSetId = route.id;
+      state.selectedModelId = getSet(route.id)?.modelId || null;
+    }
+
     updateNavigation();
 
-    if (page === "model-detail") {
-      renderModelDetail();
+    if (route.page === "model-detail") renderModelDetail();
+    if (route.page === "set-detail") renderSetDetail();
+
+    updateDocumentTitle();
+    window.scrollTo({ top: 0 });
+  }
+
+  function navigate(page, id) {
+    const hash = routeHash(page, id);
+
+    if (location.hash !== hash) {
+      location.hash = hash;
     }
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    applyRoute();
+  }
+
+  function updateDocumentTitle() {
+    const base = CONFIG.appName || "Cosplay Archive";
+    let title = base;
+
+    if (state.page === "sets") {
+      title = `Все сеты — ${base}`;
+    } else if (state.page === "model-detail") {
+      const model = getModel(state.selectedModelId);
+      title = model ? `${model.name} — ${base}` : `Модель не найдена — ${base}`;
+    } else if (state.page === "set-detail") {
+      const set = getSet(state.viewedSetId);
+      const model = set ? getModel(set.modelId) : null;
+
+      title = set
+        ? `${set.title || set.character || "Сет"}${model ? ` · ${model.name}` : ""} — ${base}`
+        : `Сет не найден — ${base}`;
+    }
+
+    document.title = title;
+  }
+
+  function renderNotFound(title, text) {
+    return `
+      <div class="empty-state not-found">
+        <div class="empty-icon" aria-hidden="true">✦</div>
+        <h2>${escapeHTML(title)}</h2>
+        <p>${escapeHTML(text)}</p>
+        <a class="button button-primary" href="#/">К моделям</a>
+      </div>
+    `;
   }
 
   /* -------------------- Модели -------------------- */
@@ -1630,7 +1736,15 @@
       cleanupObjectURLs();
       await refreshData();
 
-      closeDialog($("#setViewDialog"));
+      if (state.page === "set-detail" && state.viewedSetId === id) {
+        // Страницы удалённого сета больше нет — возвращаемся к модели.
+        if (getModel(set.modelId)) {
+          navigate("model-detail", set.modelId);
+        } else {
+          navigate("models");
+        }
+      }
+
       renderAll();
 
       showToast("Сет удалён.", "success");
@@ -1656,9 +1770,6 @@
       await refreshData();
       renderAll();
 
-      if (state.viewedSetId === id) {
-        updateViewFavoriteButton(updated);
-      }
 
       scheduleAutoSync();
     } catch (error) {
@@ -1669,55 +1780,117 @@
 
   /* -------------------- Просмотр сета -------------------- */
 
-  function openSetView(id) {
-    const set = getSet(id);
-    if (!set) return;
+  function renderSetDetail() {
+    const root = $("#setDetailBody");
+    if (!root) return;
 
-    state.viewedSetId = id;
+    const set = getSet(state.viewedSetId);
+
+    if (!set) {
+      root.innerHTML = renderNotFound(
+        "Сет не найден",
+        "Возможно, он удалён или ещё не синхронизировался на этом устройстве."
+      );
+      return;
+    }
+
+    state.selectedModelId = set.modelId;
 
     const model = getModel(set.modelId);
     const photos = getSetPhotos(set);
+    const title = set.title || set.character || "Без названия";
+    const modelName = model?.name || "Неизвестная модель";
 
-    $("#viewModelName").textContent = model?.name || "Неизвестная модель";
-    $("#viewSetTitle").textContent = set.title || set.character || "Без названия";
+    // Соседние сеты этой же модели для перехода «назад / вперёд».
+    const siblings = sortSets(
+      state.sets.filter(item => item.modelId === set.modelId),
+      "newest"
+    );
+    const index = siblings.findIndex(item => item.id === set.id);
+    const newer = index > 0 ? siblings[index - 1] : null;
+    const older = index >= 0 && index < siblings.length - 1
+      ? siblings[index + 1]
+      : null;
 
-    $("#viewSetMeta").innerHTML = `
-      <span>Персонаж: ${escapeHTML(set.character || "Не указан")}</span>
-      <span>Дата: ${escapeHTML(formatDate(set.date))}</span>
-      ${set.rating ? `<span>★ ${set.rating}/5</span>` : ""}
-      <span>${photos.length} фото</span>
+    const pagerLink = (item, label, className) => item
+      ? `<a class="button button-quiet ${className}" href="${setHref(item.id)}">
+           ${label}
+           <span class="pager-title">${escapeHTML(item.title || item.character || "Без названия")}</span>
+         </a>`
+      : "<span></span>";
+
+    root.innerHTML = `
+      <nav class="breadcrumbs" aria-label="Навигация по страницам">
+        <a href="#/">Модели</a>
+        <span aria-hidden="true">/</span>
+        ${model
+          ? `<a href="${modelHref(model.id)}">${escapeHTML(modelName)}</a>`
+          : `<span>${escapeHTML(modelName)}</span>`}
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">${escapeHTML(title)}</span>
+      </nav>
+
+      <div class="model-detail-hero set-detail-hero">
+        <div class="hero-content">
+          <p class="eyebrow">${model
+            ? `<a href="${modelHref(model.id)}">${escapeHTML(modelName)}</a>`
+            : escapeHTML(modelName)}</p>
+          <h1>${escapeHTML(title)}</h1>
+          <div class="set-meta">
+            <span>Персонаж: ${escapeHTML(set.character || "не указан")}</span>
+            <span>${escapeHTML(formatDate(set.date || set.createdAt?.slice(0, 10)))}</span>
+            ${set.rating ? `<span>★ ${escapeHTML(set.rating)}/5</span>` : ""}
+            <span>${photos.length} ${pluralize(photos.length, "фото", "фото", "фото")}</span>
+          </div>
+          ${set.tags?.length
+            ? `<div class="tag-chips set-detail-tags">${renderTags(set.tags)}</div>`
+            : ""}
+        </div>
+
+        <div class="hero-actions">
+          <button class="button ${set.favorite ? "button-primary" : ""}" type="button"
+            data-action="favorite-set" data-id="${escapeHTML(set.id)}"
+            aria-pressed="${Boolean(set.favorite)}">
+            ${set.favorite ? "♥ В избранном" : "♡ В избранное"}
+          </button>
+          <button class="button" type="button"
+            data-action="edit-set" data-id="${escapeHTML(set.id)}">
+            Редактировать
+          </button>
+          <button class="button button-quiet" type="button"
+            data-action="delete-set" data-id="${escapeHTML(set.id)}">
+            Удалить
+          </button>
+        </div>
+      </div>
+
+      ${set.description
+        ? `<p class="view-description set-detail-description">${escapeHTML(set.description)}</p>`
+        : ""}
+
+      ${photos.length
+        ? `<div class="photo-gallery set-detail-gallery">
+            ${photos.map((photo, photoIndex) => `
+              <button type="button" data-action="lightbox"
+                data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
+                <img src="${photoURL(photo)}"
+                  alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
+                  loading="lazy">
+              </button>
+            `).join("")}
+          </div>`
+        : `<div class="empty-state">
+             <h2>В этом сете пока нет фотографий</h2>
+             <p>Открой «Редактировать», чтобы добавить фото.</p>
+           </div>`}
+
+      ${newer || older
+        ? `<nav class="set-pager" aria-label="Другие сеты модели">
+             ${pagerLink(newer, "← Новее", "pager-prev")}
+             ${pagerLink(older, "Старее →", "pager-next")}
+           </nav>`
+        : ""}
     `;
-
-    $("#viewSetTags").innerHTML = renderTags(set.tags || []);
-
-    $("#viewSetDescription").textContent = set.description || "";
-
-    const gallery = $("#viewGallery");
-
-    if (gallery) {
-      gallery.innerHTML = photos.map((photo, index) => `
-        <button type="button" data-action="lightbox"
-          data-index="${index}" aria-label="Открыть фото ${index + 1}">
-          <img src="${photoURL(photo)}"
-            alt="${escapeHTML(set.character)} — фото ${index + 1}"
-            loading="lazy">
-        </button>
-      `).join("");
-    }
-
-    updateViewFavoriteButton(set);
-    openDialog($("#setViewDialog"));
-  }
-
-  function updateViewFavoriteButton(set) {
-    const button = $("#viewFavoriteBtn");
-    if (!button) return;
-
-    button.textContent = set.favorite
-      ? "♥ В избранном"
-      : "♡ В избранное";
-
-    button.setAttribute("aria-pressed", String(Boolean(set.favorite)));
   }
 
   /* -------------------- Полноэкранная галерея -------------------- */
@@ -2381,8 +2554,7 @@
 
     const set = state.sets[Math.floor(Math.random() * state.sets.length)];
 
-    navigate("sets");
-    openSetView(set.id);
+    navigate("set-detail", set.id);
   }
 
   /* -------------------- Обработчики интерфейса -------------------- */
@@ -2421,9 +2593,7 @@
         break;
 
       case "open-model":
-        state.selectedModelId = id;
-        navigate("model-detail");
-        renderModelDetail();
+        navigate("model-detail", id);
         break;
 
       case "add-set":
@@ -2439,7 +2609,7 @@
         break;
 
       case "view-set":
-        openSetView(id);
+        navigate("set-detail", id);
         break;
 
       case "delete-set":
@@ -2512,7 +2682,10 @@
     $("#addMainBtn")?.addEventListener("click", () => {
       if (state.page === "sets") {
         openSetForm();
-      } else if (state.page === "model-detail" && state.selectedModelId) {
+      } else if (
+        (state.page === "model-detail" || state.page === "set-detail")
+        && state.selectedModelId
+      ) {
         openSetForm(null, state.selectedModelId);
       } else {
         openModelForm();
@@ -2611,27 +2784,6 @@
     $("#driveSyncBtn")?.addEventListener("click", () => syncNow());
     $("#driveSignOutBtn")?.addEventListener("click", driveSignOut);
 
-    // Просмотр сета.
-    $("#viewFavoriteBtn")?.addEventListener("click", () => {
-      if (state.viewedSetId) {
-        toggleFavorite(state.viewedSetId);
-      }
-    });
-
-    $("#editViewedSetBtn")?.addEventListener("click", () => {
-      const set = getSet(state.viewedSetId);
-      if (!set) return;
-
-      closeDialog($("#setViewDialog"));
-      openSetForm(set);
-    });
-
-    $("#deleteViewedSetBtn")?.addEventListener("click", () => {
-      if (state.viewedSetId) {
-        deleteSet(state.viewedSetId);
-      }
-    });
-
     // Случайный сет: используем ID, если он существует,
     // иначе ищем кнопку по тексту.
     const randomButton =
@@ -2645,6 +2797,16 @@
 
     // Делегирование кликов по динамическим карточкам и галереям.
     document.addEventListener("click", event => {
+      // Ctrl/Cmd/Shift-клик и средняя кнопка по ссылкам — открытие в новой вкладке.
+      if (
+        event.button !== 0
+        || event.metaKey
+        || event.ctrlKey
+        || event.shiftKey
+      ) {
+        if (event.target.closest("a[href]")) return;
+      }
+
       const element = event.target.closest("[data-action]");
 
       if (!element) {
@@ -2722,7 +2884,6 @@
         }
 
         closeDialog($("#modelDialog"));
-        closeDialog($("#setViewDialog"));
       }
     });
   }
@@ -2741,8 +2902,10 @@
         $("#setDate").value = today();
       }
 
+      window.addEventListener("hashchange", () => applyRoute());
+
       renderAll();
-      navigate("models");
+      applyRoute(true);
 
       initDrive();
 
