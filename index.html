@@ -23,11 +23,11 @@
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
   >
 
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
 
-  <script src="js/config.js?v=8" defer></script>
-  <script src="js/drive.js?v=8" defer></script>
-  <script src="js/app.js?v=8" defer></script>
+  <script src="js/config.js?v=9" defer></script>
+  <script src="js/drive.js?v=9" defer></script>
+  <script src="js/app.js?v=9" defer></script>
 </head>
 
 <body>
@@ -172,6 +172,14 @@
           <input type="checkbox" id="favoritesOnly">
           Только избранное
         </label>
+
+        <button
+          class="button button-quiet"
+          type="button"
+          id="massUploadOpenBtn"
+        >
+          Массовая загрузка
+        </button>
       </div>
 
       <div class="tag-chips" id="tagChips"></div>
@@ -501,6 +509,86 @@
 
         <button class="button button-primary" type="submit">
           Сохранить сет
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Окно массовой загрузки фотографий -->
+  <dialog
+    id="massUploadDialog"
+    class="dialog dialog-wide"
+    aria-labelledby="massUploadTitle"
+  >
+    <form id="massUploadForm" class="dialog-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">МАССОВАЯ ЗАГРУЗКА</p>
+          <h2 id="massUploadTitle">Загрузить много фотографий</h2>
+        </div>
+
+        <button
+          class="icon-button"
+          type="button"
+          data-close="massUploadDialog"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+      </div>
+
+      <label class="full-width" for="massUploadSetFilter">
+        Поиск сета
+        <input
+          id="massUploadSetFilter"
+          type="search"
+          autocomplete="off"
+          placeholder="Модель, персонаж или название"
+        >
+      </label>
+
+      <label class="full-width" for="massUploadSet">
+        Куда загрузить <span class="required">*</span>
+        <select id="massUploadSet" required></select>
+        <small id="massUploadSetHint">
+          Выбери сет — фотографии добавятся в него.
+        </small>
+      </label>
+
+      <div class="upload-panel" id="massUploadDrop">
+        <div>
+          <h3>Фотографии</h3>
+          <p class="muted">
+            Перетащи сюда сразу много изображений или выбери их.
+          </p>
+        </div>
+
+        <label class="button button-quiet upload-button">
+          + Выбрать фотографии
+          <input
+            id="massUploadInput"
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+          >
+        </label>
+
+        <div class="photo-manager" id="massUploadThumbs"></div>
+        <p class="muted small" id="massUploadStatus"></p>
+      </div>
+
+      <div class="dialog-actions">
+        <button
+          class="button button-quiet"
+          type="button"
+          data-close="massUploadDialog"
+        >
+          Отмена
+        </button>
+
+        <button class="button button-primary" type="submit">
+          Загрузить
         </button>
       </div>
     </form>

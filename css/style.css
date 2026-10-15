@@ -2492,3 +2492,26 @@ a.button {
   }
 }
 
+/* -------------------- Массовая загрузка фотографий -------------------- */
+
+#massUploadDialog .upload-panel {
+  width: 100%;
+}
+
+#massUploadThumbs {
+  width: 100%;
+  max-height: 42vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#massUploadThumbs:empty {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  #massUploadThumbs {
+    max-height: 32vh;
+  }
+}
+

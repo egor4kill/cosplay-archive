@@ -348,6 +348,9 @@
     draftNewPhotos: [],
     draftRemovedPhotoIds: new Set(),
     draftCoverPhotoId: null,
+    massUploadPhotos: [],
+    massUploadObjectURLs: new Map(),
+    massUploadTargetSetId: null,
     busy: false,
     drive: {
       configured: false,
@@ -456,6 +459,16 @@
       && state.draftNewPhotos.length
       && !confirm(
         "Закрыть без сохранения? Выбранные фотографии не будут добавлены."
+      )
+    ) {
+      return;
+    }
+
+    if (
+      id === "massUploadDialog"
+      && state.massUploadPhotos.length
+      && !confirm(
+        "Закрыть без загрузки? Выбранные фотографии не будут добавлены."
       )
     ) {
       return;
@@ -1886,6 +1899,297 @@
     renderDraftPhotos();
   }
 
+  /* -------------------- Массовая загрузка фотографий -------------------- */
+
+  function massUploadSetLabel(set) {
+    const model = getModel(set.modelId);
+    const name = set.title || set.character || "Без названия";
+    return model ? `${model.name} — ${name}` : name;
+  }
+
+  function releaseMassUploadURLs() {
+    for (const url of state.massUploadObjectURLs.values()) {
+      URL.revokeObjectURL(url);
+    }
+
+    state.massUploadObjectURLs.clear();
+  }
+
+  function resetMassUploadState() {
+    releaseMassUploadURLs();
+    state.massUploadPhotos = [];
+    state.massUploadTargetSetId = null;
+    renderMassThumbs();
+    updateMassUploadStatus();
+  }
+
+  function massUploadMatches(set, query) {
+    if (!query) return true;
+
+    const model = getModel(set.modelId);
+    const haystack = [
+      model?.name || "",
+      set.character || "",
+      set.title || "",
+      set.description || "",
+      (set.tags || []).join(" ")
+    ].join(" ").toLocaleLowerCase("ru");
+
+    return haystack.includes(query);
+  }
+
+  function renderMassTargets() {
+    const select = $("#massUploadSet");
+    if (!select) return;
+
+    const query = ($("#massUploadSetFilter")?.value || "").trim().toLocaleLowerCase("ru");
+    const previous = select.value;
+
+    const groups = sortModels(state.models, "name")
+      .map(model => ({
+        model,
+        sets: sortSets(
+          state.sets.filter(set => set.modelId === model.id
+            && massUploadMatches(set, query)),
+          "newest"
+        )
+      }))
+      .filter(group => group.sets.length);
+
+    select.innerHTML = groups.map(group => `
+      <optgroup label="${escapeHTML(group.model.name)}">
+        ${group.sets.map(set => `
+          <option value="${escapeHTML(set.id)}">
+            ${escapeHTML(massUploadSetLabel(set))}
+          </option>
+        `).join("")}
+      </optgroup>
+    `).join("");
+
+    const values = [...select.options].map(option => option.value);
+
+    if (state.massUploadTargetSetId && values.includes(state.massUploadTargetSetId)) {
+      select.value = state.massUploadTargetSetId;
+    } else if (values.includes(previous)) {
+      select.value = previous;
+    }
+
+    if (!values.length) {
+      select.innerHTML = '<option value="">Нет подходящих сетов</option>';
+    }
+  }
+
+  function openMassUploadDialog(preferredSetId = null) {
+    if (!state.sets.length) {
+      showToast("Сначала создай хотя бы один сет.", "error");
+      return;
+    }
+
+    const filter = $("#massUploadSetFilter");
+    if (filter) filter.value = "";
+
+    resetMassUploadState();
+    state.massUploadTargetSetId = preferredSetId || null;
+
+    renderMassTargets();
+    openDialog($("#massUploadDialog"));
+  }
+
+  function updateMassUploadStatus(extra = "") {
+    const status = $("#massUploadStatus");
+    if (!status) return;
+
+    const count = state.massUploadPhotos.length;
+
+    status.textContent = extra || (count
+      ? `Выбрано фотографий: ${count}`
+      : "Фотографии ещё не выбраны.");
+  }
+
+  function renderMassThumbs() {
+    const container = $("#massUploadThumbs");
+    if (!container) return;
+
+    container.innerHTML = state.massUploadPhotos.map((photo, index) => `
+      <div class="photo-thumb">
+        <img src="${state.massUploadObjectURLs.get(photo.id) || ""}"
+          alt="Фото ${index + 1}" loading="lazy">
+        <button type="button" data-action="remove-mass-photo"
+          data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото">×</button>
+      </div>
+    `).join("");
+  }
+
+  function removeMassPhoto(id) {
+    const index = state.massUploadPhotos.findIndex(photo => photo.id === id);
+    if (index === -1) return;
+
+    state.massUploadPhotos.splice(index, 1);
+
+    const url = state.massUploadObjectURLs.get(id);
+    if (url) {
+      URL.revokeObjectURL(url);
+      state.massUploadObjectURLs.delete(id);
+    }
+
+    renderMassThumbs();
+    updateMassUploadStatus();
+  }
+
+  async function addMassPhotos(fileList) {
+    const files = Array.from(fileList || [])
+      .filter(file => file.type.startsWith("image/"));
+
+    if (!files.length) return;
+
+    const max = CONFIG.maxPhotosPerImport || 200;
+
+    if (state.massUploadPhotos.length + files.length > max) {
+      showToast(`За раз можно обработать не более ${max} фотографий.`, "error");
+      return;
+    }
+
+    const input = $("#massUploadInput");
+    if (input) input.disabled = true;
+
+    let added = 0;
+    let skipped = 0;
+
+    try {
+      for (const file of files) {
+        if (!CONFIG.allowedImageTypes.includes(file.type)) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const prepared = await prepareImage(file);
+          state.massUploadPhotos.push(prepared);
+          state.massUploadObjectURLs.set(
+            prepared.id,
+            URL.createObjectURL(prepared.blob)
+          );
+          added += 1;
+        } catch (error) {
+          console.warn(`Файл «${file.name}» пропущен.`, error);
+          skipped += 1;
+        }
+
+        updateMassUploadStatus(
+          `Обработка… ${added + skipped} из ${files.length}`
+        );
+
+        if ((added + skipped) % 4 === 0) {
+          renderMassThumbs();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    } finally {
+      if (input) {
+        input.disabled = false;
+        input.value = "";
+      }
+    }
+
+    renderMassThumbs();
+    updateMassUploadStatus();
+
+    if (added) {
+      showToast(`Добавлено фотографий: ${added}`, "success");
+    }
+
+    if (skipped) {
+      showToast(`Пропущено файлов: ${skipped}`, "error");
+    }
+  }
+
+  async function saveMassUpload(event) {
+    event.preventDefault();
+
+    if (state.busy) return;
+
+    const set = getSet($("#massUploadSet")?.value);
+
+    if (!set) {
+      showToast("Выбери сет для загрузки.", "error");
+      return;
+    }
+
+    if (!state.massUploadPhotos.length) {
+      showToast("Добавь хотя бы одну фотографию.", "error");
+      return;
+    }
+
+    const baseOrder = (set.photoIds || []).length;
+
+    const newPhotos = state.massUploadPhotos.map((photo, index) => ({
+      ...photo,
+      setId: set.id,
+      order: baseOrder + index
+    }));
+
+    const photoIds = [
+      ...(set.photoIds || []),
+      ...newPhotos.map(photo => photo.id)
+    ];
+
+    const setRecord = {
+      ...set,
+      photoIds,
+      coverPhotoId: set.coverPhotoId || photoIds[0] || null,
+      updatedAt: new Date().toISOString()
+    };
+
+    setBusy(true, "Загрузка фотографий…");
+
+    try {
+      await db.saveSetWithPhotos(setRecord, newPhotos, []);
+
+      resetMassUploadState();
+      closeDialog($("#massUploadDialog"));
+
+      await refreshData();
+      renderAll();
+
+      showToast(`Загружено фотографий: ${newPhotos.length}`, "success");
+      scheduleAutoSync();
+
+      navigate("set-detail", setRecord.id);
+    } catch (error) {
+      console.error(error);
+      showToast("Не удалось загрузить фотографии.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function bindDropZone(panel, onFiles) {
+    if (!panel) return;
+
+    ["dragenter", "dragover"].forEach(type => {
+      panel.addEventListener(type, event => {
+        event.preventDefault();
+        panel.classList.add("is-dragover");
+      });
+    });
+
+    ["dragleave", "dragend"].forEach(type => {
+      panel.addEventListener(type, () => {
+        panel.classList.remove("is-dragover");
+      });
+    });
+
+    panel.addEventListener("drop", event => {
+      event.preventDefault();
+      panel.classList.remove("is-dragover");
+
+      const files = [...(event.dataTransfer?.files || [])]
+        .filter(file => file.type.startsWith("image/"));
+
+      if (files.length) onFiles(files);
+    });
+  }
+
   async function saveSet(event) {
     event.preventDefault();
 
@@ -2130,6 +2434,10 @@
           <button class="button" type="button"
             data-action="edit-set" data-id="${escapeHTML(set.id)}">
             Редактировать
+          </button>
+          <button class="button button-quiet" type="button"
+            data-action="upload-photos" data-id="${escapeHTML(set.id)}">
+            Загрузить фото
           </button>
           <button class="button button-quiet" type="button"
             data-action="delete-set" data-id="${escapeHTML(set.id)}">
@@ -3210,6 +3518,14 @@
         toggleFavorite(id);
         break;
 
+      case "upload-photos":
+        openMassUploadDialog(id);
+        break;
+
+      case "remove-mass-photo":
+        removeMassPhoto(id);
+        break;
+
       case "filter-tag":
         state.activeTag = state.activeTag === tag ? "" : tag;
         renderTagChips();
@@ -3363,10 +3679,33 @@
       addSelectedPhotos(event.target.files);
     });
 
-    // Вставка изображений из буфера обмена (Ctrl+V) в открытой форме сета.
+    // Массовая загрузка фотографий.
+    $("#massUploadOpenBtn")?.addEventListener("click", () => {
+      openMassUploadDialog(
+        state.page === "set-detail" ? state.viewedSetId : null
+      );
+    });
+
+    $("#massUploadForm")?.addEventListener("submit", saveMassUpload);
+
+    $("#massUploadInput")?.addEventListener("change", event => {
+      addMassPhotos(event.target.files);
+    });
+
+    $("#massUploadSetFilter")?.addEventListener("input", renderMassTargets);
+
+    $("#massUploadSet")?.addEventListener("change", event => {
+      state.massUploadTargetSetId = event.target.value || null;
+    });
+
+    $("#massUploadDialog")?.addEventListener("close", resetMassUploadState);
+
+    // Вставка изображений из буфера обмена (Ctrl+V) в открытой форме.
     document.addEventListener("paste", event => {
-      const dialog = $("#setDialog");
-      if (!dialog?.open) return;
+      const setDialogOpen = $("#setDialog")?.open;
+      const massDialogOpen = $("#massUploadDialog")?.open;
+
+      if (!setDialogOpen && !massDialogOpen) return;
 
       const items = [...(event.clipboardData?.items || [])];
       const files = items
@@ -3377,36 +3716,17 @@
       if (!files.length) return;
 
       event.preventDefault();
-      addSelectedPhotos(files);
+
+      if (setDialogOpen) {
+        addSelectedPhotos(files);
+      } else {
+        addMassPhotos(files);
+      }
     });
 
-    // Перетаскивание файлов в панель фотографий.
-    const uploadPanel = document.querySelector(".upload-panel");
-
-    if (uploadPanel) {
-      ["dragenter", "dragover"].forEach(type => {
-        uploadPanel.addEventListener(type, event => {
-          event.preventDefault();
-          uploadPanel.classList.add("is-dragover");
-        });
-      });
-
-      ["dragleave", "dragend"].forEach(type => {
-        uploadPanel.addEventListener(type, () => {
-          uploadPanel.classList.remove("is-dragover");
-        });
-      });
-
-      uploadPanel.addEventListener("drop", event => {
-        event.preventDefault();
-        uploadPanel.classList.remove("is-dragover");
-
-        const files = [...(event.dataTransfer?.files || [])]
-          .filter(file => file.type.startsWith("image/"));
-
-        if (files.length) addSelectedPhotos(files);
-      });
-    }
+    // Перетаскивание файлов в панели фотографий.
+    bindDropZone(document.querySelector("#setDialog .upload-panel"), addSelectedPhotos);
+    bindDropZone($("#massUploadDrop"), addMassPhotos);
 
     // Резервные копии.
     $("#backupBtn")?.addEventListener("click", exportBackup);
@@ -3553,11 +3873,18 @@
 
       if (event.key === "Escape") {
         const setDialog = $("#setDialog");
+        const massDialog = $("#massUploadDialog");
 
         if (setDialog?.open) {
           // Не даём браузеру закрыть диалог самому — иначе пропустим подтверждение.
           event.preventDefault();
           requestCloseDialog("setDialog");
+          return;
+        }
+
+        if (massDialog?.open) {
+          event.preventDefault();
+          requestCloseDialog("massUploadDialog");
           return;
         }
 
