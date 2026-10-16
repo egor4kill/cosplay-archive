@@ -340,7 +340,9 @@
     await apiFetch(`${DRIVE_API}/files/${fileId}`, { method: "DELETE" });
   }
 
-  window.CosplayDrive = {
+  const provider = {
+    id: "gdrive",
+    label: "Google Drive",
     configure,
     isConfigured,
     hasToken,
@@ -356,4 +358,7 @@
     downloadFile,
     deleteFile
   };
+
+  window.CosplayDrive = provider;
+  window.CosplayProviders?.register("gdrive", provider);
 })();

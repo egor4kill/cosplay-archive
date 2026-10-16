@@ -37,16 +37,28 @@ window.COSPLAY_CONFIG = {
     version: 1
   },
 
-  // Синхронизация с Google Drive.
-  // Чтобы она заработала, вставь свой OAuth Client ID (см. README.md).
-  drive: {
-    enabled: true,
-    clientId: "482187558997-r79ijrr1fus8f9sggmlc0d7rgimde73u.apps.googleusercontent.com",
-    scope: "https://www.googleapis.com/auth/drive.file",
-    rootFolderName: "Cosplay Archive",
-    manifestName: "archive.json",
-    photosFolderName: "photos",
-    autoSync: true,
-    autoSyncDelayMs: 4000
+  // Облачные провайдеры хранения.
+  // Каждый провайдер: enabled, …credentials, autoSync, autoSyncDelayMs.
+  // GDrive: clientId (см. README.md). Dropbox: appKey (см. README.md).
+  providers: {
+    gdrive: {
+      enabled: true,
+      clientId: "482187558997-r79ijrr1fus8f9sggmlc0d7rgimde73u.apps.googleusercontent.com",
+      scope: "https://www.googleapis.com/auth/drive.file",
+      rootFolderName: "Cosplay Archive",
+      manifestName: "archive.json",
+      photosFolderName: "photos",
+      autoSync: true,
+      autoSyncDelayMs: 4000
+    },
+    dropbox: {
+      enabled: false,
+      appKey: "",
+      rootFolderName: "Cosplay Archive",
+      manifestName: "archive.json",
+      photosFolderName: "photos",
+      autoSync: false,
+      autoSyncDelayMs: 4000
+    }
   }
 };

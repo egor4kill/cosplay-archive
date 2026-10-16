@@ -37,19 +37,36 @@
       format: "cosplay-archive-backup",
       version: 1
     },
-    drive: {
-      enabled: false,
-      clientId: "",
-      scope: "https://www.googleapis.com/auth/drive.file",
-      rootFolderName: "Cosplay Archive",
-      manifestName: "archive.json",
-      photosFolderName: "photos",
-      autoSync: true,
-      autoSyncDelayMs: 4000
+    providers: {
+      gdrive: {
+        enabled: false,
+        clientId: "",
+        scope: "https://www.googleapis.com/auth/drive.file",
+        rootFolderName: "Cosplay Archive",
+        manifestName: "archive.json",
+        photosFolderName: "photos",
+        autoSync: true,
+        autoSyncDelayMs: 4000
+      },
+      dropbox: {
+        enabled: false,
+        appKey: "",
+        rootFolderName: "Cosplay Archive",
+        manifestName: "archive.json",
+        photosFolderName: "photos",
+        autoSync: false,
+        autoSyncDelayMs: 4000
+      }
     }
   };
 
-  const drive = window.CosplayDrive || null;
+  // Активный облачный провайдер (обновляется через refreshActiveProvider).
+  let drive = null;
+  const providers = window.CosplayProviders || null;
+
+  function refreshActiveProvider() {
+    drive = providers?.getActive() || null;
+  }
 
   const $ = (selector, root = document) =>
     root.querySelector(selector);
@@ -3270,14 +3287,37 @@
     const syncBtn = $("#driveSyncBtn");
     const signOutBtn = $("#driveSignOutBtn");
     const status = $("#driveStatus");
+    const providerSelect = $("#driveProviderSelect");
+
+    refreshActiveProvider();
 
     const configured = Boolean(drive && drive.isConfigured());
     const signedIn = Boolean(drive && drive.hasToken());
+    const label = drive?.label || "Облако";
 
     state.drive.configured = configured;
     state.drive.signedIn = signedIn;
 
-    bar.classList.toggle("hidden", !drive || !CONFIG.drive?.enabled);
+    // Заполняем селектор провайдерами.
+    if (providerSelect && providers) {
+      const configuredIds = providers.list().filter(id => {
+        const p = providers.get(id);
+        return p && p.isConfigured();
+      });
+
+      if (configuredIds.length > 1) {
+        providerSelect.classList.remove("hidden");
+        providerSelect.innerHTML = configuredIds.map(id => {
+          const p = providers.get(id);
+          const selected = id === providers.activeId() ? "selected" : "";
+          return `<option value="${escapeHTML(id)}" ${selected}>${escapeHTML(p.label || id)}</option>`;
+        }).join("");
+      } else {
+        providerSelect.classList.add("hidden");
+      }
+    }
+
+    bar.classList.toggle("hidden", !drive);
 
     connectBtn?.classList.toggle("hidden", !configured || signedIn);
     syncBtn?.classList.toggle("hidden", !signedIn);
@@ -3291,11 +3331,11 @@
     let text = "";
 
     if (!configured) {
-      text = "Google Drive: укажите OAuth Client ID в js/config.js.";
+      text = `${label}: укажите ключи в js/config.js.`;
     } else if (state.drive.syncing) {
       text = "Синхронизация…";
     } else if (state.drive.error) {
-      text = `Google Drive: ${state.drive.error}`;
+      text = `${label}: ${state.drive.error}`;
       status.classList.add("is-error");
     } else if (signedIn) {
       const time = state.drive.lastSyncAt
@@ -3305,42 +3345,45 @@
           })
         : "";
       text = time
-        ? `Google Drive подключён · синхронизировано в ${time}`
-        : "Google Drive подключён";
+        ? `${label} подключён · синхронизировано в ${time}`
+        : `${label} подключён`;
     } else {
-      text = "Google Drive не подключён.";
+      text = `${label} не подключён.`;
     }
 
     status.textContent = text;
   }
 
   function scheduleAutoSync() {
-    if (!CONFIG.drive?.enabled || !CONFIG.drive?.autoSync) return;
     if (!drive || !drive.isConfigured() || !drive.hasToken()) return;
+    const providerCfg = CONFIG.providers?.[providers?.activeId() || "gdrive"];
+    if (!providerCfg?.enabled || !providerCfg?.autoSync) return;
 
     clearTimeout(autoSyncTimer);
     autoSyncTimer = setTimeout(() => {
       syncNow({ silent: true });
-    }, CONFIG.drive.autoSyncDelayMs || 4000);
+    }, providerCfg.autoSyncDelayMs || 4000);
   }
 
   async function driveConnect() {
     if (!drive || !drive.isConfigured()) {
-      showToast("Сначала укажите Google OAuth Client ID в js/config.js.", "error");
+      showToast("Сначала укажите ключи провайдера в js/config.js.", "error");
       return;
     }
+
+    const label = drive.label || "Облако";
 
     try {
       await drive.connect();
       state.drive.error = "";
       updateDriveUI();
-      showToast("Google Drive подключён.", "success");
+      showToast(`${label} подключён.`, "success");
       await syncNow({ silent: true });
     } catch (error) {
       console.error(error);
       state.drive.error = error.message || "ошибка авторизации";
       updateDriveUI();
-      showToast(`Не удалось подключить Google Drive: ${error.message}`, "error");
+      showToast(`Не удалось подключить ${label}: ${error.message}`, "error");
     }
   }
 
@@ -3349,15 +3392,17 @@
     state.drive.lastSyncAt = null;
     state.drive.error = "";
     updateDriveUI();
-    showToast("Google Drive отключён.");
+    showToast(`${drive?.label || "Облако"} отключён.`);
   }
 
   async function syncNow(options = {}) {
     const { silent = false } = options;
 
+    refreshActiveProvider();
+
     if (!drive || !drive.isConfigured()) {
       if (!silent) {
-        showToast("Сначала укажите Google OAuth Client ID в js/config.js.", "error");
+        showToast("Сначала укажите ключи провайдера в js/config.js.", "error");
       }
       return;
     }
@@ -3369,15 +3414,16 @@
       updateDriveUI();
 
       if (!ok) {
-        if (!silent) showToast("Подключите Google Drive.", "error");
+        if (!silent) showToast(`Подключите ${drive.label || "облако"}.`, "error");
         return;
       }
     }
 
+    const providerLabel = drive.label || "облако";
     state.drive.syncing = true;
     state.drive.error = "";
     updateDriveUI();
-    showProgress("Синхронизация с Google Drive…");
+    showProgress(`Синхронизация с ${providerLabel}…`);
 
     try {
       await drive.ensureFolders();
@@ -3471,10 +3517,12 @@
         if (blob) record.blob = blob;
         if (previewBlob) record.preview = previewBlob;
         if (driveFileId) record.driveFileId = driveFileId;
+        // provider: сохраняем активный провайдер фото.
+        record.provider = drive.id || record.provider;
         photos.push(record);
 
         manifestPhotos.push(
-          driveFileId ? { ...meta, driveFileId } : { ...meta }
+          driveFileId ? { ...meta, driveFileId, provider: drive.id || meta.provider } : { ...meta, provider: drive.id || meta.provider }
         );
       }
 
@@ -3498,6 +3546,7 @@
         format: "cosplay-archive-drive",
         version: 1,
         exportedAt: new Date().toISOString(),
+        provider: drive.id,
         models,
         sets: cleanSets,
         photos: manifestPhotos,
@@ -3550,13 +3599,36 @@
     }
   }
 
-  function initDrive() {
-    if (!drive || !CONFIG.drive?.enabled) {
+   function initDrive() {
+    refreshActiveProvider();
+
+    if (providers) {
+      for (const id of providers.list()) {
+        const p = providers.get(id);
+        const cfg = CONFIG.providers?.[id];
+        if (cfg && p && typeof p.configure === "function") {
+          p.configure(cfg);
+        }
+      }
+    }
+
+    if (!drive || (drive.id === "gdrive" && !CONFIG.providers?.gdrive?.enabled && CONFIG.providers?.dropbox?.enabled)) {
+      // Попробуем переключиться, если gdrive выключен, а dropbox включен.
+      if (CONFIG.providers?.dropbox?.enabled) {
+        providers?.setActive("dropbox");
+        refreshActiveProvider();
+      }
+    }
+
+    if (!drive) {
       $("#driveBar")?.classList.add("hidden");
       return;
     }
 
-    drive.configure(CONFIG.drive);
+    const cfg = CONFIG.providers?.[drive.id];
+    if (cfg && typeof drive.configure === "function") {
+      drive.configure(cfg);
+    }
     updateDriveUI();
 
     if (drive.isConfigured()) {
@@ -3868,10 +3940,20 @@
       importBackup(event.target.files?.[0]);
     });
 
-    // Синхронизация с Google Drive.
+    // Синхронизация с облаком.
     $("#driveConnectBtn")?.addEventListener("click", driveConnect);
     $("#driveSyncBtn")?.addEventListener("click", () => syncNow());
     $("#driveSignOutBtn")?.addEventListener("click", driveSignOut);
+    $("#driveProviderSelect")?.addEventListener("change", event => {
+      const id = event.target.value;
+      if (providers && id && providers.list().includes(id)) {
+        providers.setActive(id);
+        refreshActiveProvider();
+        state.drive.lastSyncAt = null;
+        state.drive.error = "";
+        updateDriveUI();
+      }
+    });
 
     // Случайный сет: используем ID, если он существует,
     // иначе ищем кнопку по тексту.
