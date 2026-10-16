@@ -30,14 +30,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/style.css?v=19">
 
-  <script src="js/config.js?v=18" defer></script>
-  <script src="js/providers/registry.js?v=18" defer></script>
-  <script src="js/drive.js?v=18" defer></script>
-  <script src="js/providers/dropbox.js?v=18" defer></script>
-  <script src="js/vendor/jszip.min.js?v=18" defer></script>
-  <script src="js/app.js?v=18" defer></script>
+  <script src="js/config.js?v=19" defer></script>
+  <script src="js/providers/registry.js?v=19" defer></script>
+  <script src="js/drive.js?v=19" defer></script>
+  <script src="js/providers/dropbox.js?v=19" defer></script>
+  <script src="js/vendor/jszip.min.js?v=19" defer></script>
+  <script src="js/app.js?v=19" defer></script>
 </head>
 
 <body>
@@ -381,6 +381,11 @@
         <small>Разделяй теги запятыми.</small>
       </label>
 
+      <div class="tag-suggestions-wrap" id="modelTagSuggestionsWrap" hidden>
+        <span class="tag-suggestions-title">Существующие теги:</span>
+        <div class="tag-suggestions" id="modelTagSuggestions"></div>
+      </div>
+
       <label for="modelNotes">
         Заметки
         <textarea
@@ -501,6 +506,11 @@
           >
           <small>Можно вводить с # или без него.</small>
         </label>
+
+        <div class="tag-suggestions-wrap full-width" id="setTagSuggestionsWrap" hidden>
+          <span class="tag-suggestions-title">Существующие теги:</span>
+          <div class="tag-suggestions" id="setTagSuggestions"></div>
+        </div>
 
         <label class="full-width" for="setDescription">
           Описание

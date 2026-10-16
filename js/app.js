@@ -1147,6 +1147,84 @@
     `).join("");
   }
 
+  let updateModelTagSuggestions = null;
+  let updateSetTagSuggestions = null;
+
+  function setupTagSuggestions(inputId, wrapId, containerId) {
+    const input = $(inputId);
+    const wrap = $(wrapId);
+    const container = $(containerId);
+    if (!input || !container) return () => {};
+
+    function update() {
+      const allTags = allSetTags();
+      if (!allTags.length) {
+        if (wrap) wrap.hidden = true;
+        container.innerHTML = "";
+        return;
+      }
+      if (wrap) wrap.hidden = false;
+
+      const currentTags = new Set(parseTags(input.value));
+      const parts = input.value.split(/[,;\n]/);
+      const query = (parts[parts.length - 1] || "").trim().toLowerCase().replace(/^#/, "");
+
+      let tagsToShow = allTags;
+      if (query && !currentTags.has(query)) {
+        tagsToShow = [
+          ...allTags.filter(t => t.toLowerCase().startsWith(query)),
+          ...allTags.filter(t => !t.toLowerCase().startsWith(query) && t.toLowerCase().includes(query)),
+          ...allTags.filter(t => !t.toLowerCase().includes(query))
+        ];
+      }
+
+      container.innerHTML = tagsToShow.map(tag => {
+        const isSelected = currentTags.has(tag);
+        const icon = isSelected ? "✓" : "+";
+        const tagEsc = escapeHTML(tag);
+        return `<button type="button" class="tag-suggestion-chip${isSelected ? " is-selected" : ""}" data-tag="${tagEsc}" title="${isSelected ? "Убрать тег" : "Добавить тег"}">
+          <span class="tag-suggestion-icon">${icon}</span> #${tagEsc}
+        </button>`;
+      }).join("");
+    }
+
+    container.addEventListener("click", event => {
+      const btn = event.target.closest("[data-tag]");
+      if (!btn) return;
+      event.preventDefault();
+
+      const tag = btn.dataset.tag;
+      let tags = parseTags(input.value);
+      const idx = tags.findIndex(t => t.toLowerCase() === tag.toLowerCase());
+
+      if (idx >= 0) {
+        tags.splice(idx, 1);
+      } else {
+        const parts = input.value.split(/[,;\n]/);
+        const lastPart = (parts[parts.length - 1] || "").trim().toLowerCase().replace(/^#/, "");
+        if (lastPart && tag.toLowerCase().startsWith(lastPart)) {
+          const lastIdx = tags.findIndex(t => t.toLowerCase() === lastPart);
+          if (lastIdx >= 0) {
+            tags[lastIdx] = tag;
+          } else {
+            tags.push(tag);
+          }
+        } else {
+          tags.push(tag);
+        }
+      }
+
+      input.value = tags.join(", ");
+      update();
+      input.focus();
+    });
+
+    input.addEventListener("input", update);
+    input.addEventListener("focus", update);
+
+    return update;
+  }
+
   function renderSets() {
     const grid = $("#setsGrid");
     const empty = $("#setsEmpty");
@@ -1348,6 +1426,8 @@
     renderStats();
     updateNavigation();
     updateDocumentTitle();
+    updateModelTagSuggestions?.();
+    updateSetTagSuggestions?.();
   }
 
   function updateNavigation() {
@@ -1604,6 +1684,7 @@
     $("#modelUrl").value = model?.url || "";
     $("#modelTags").value = (model?.tags || []).join(", ");
     $("#modelNotes").value = model?.notes || "";
+    updateModelTagSuggestions?.();
 
     const slugInput = $("#modelSlug");
     if (slugInput) {
@@ -1748,6 +1829,7 @@
     $("#setDate").value = set?.date || today();
     $("#setTags").value = (set?.tags || []).join(", ");
     $("#setDescription").value = set?.description || "";
+    updateSetTagSuggestions?.();
 
     const setSlugInput = $("#setSlug");
     if (setSlugInput) {
@@ -4333,6 +4415,17 @@
 
     $("#modelForm")?.addEventListener("submit", saveModel);
     $("#setForm")?.addEventListener("submit", saveSet);
+
+    updateModelTagSuggestions = setupTagSuggestions(
+      "#modelTags",
+      "#modelTagSuggestionsWrap",
+      "#modelTagSuggestions"
+    );
+    updateSetTagSuggestions = setupTagSuggestions(
+      "#setTags",
+      "#setTagSuggestionsWrap",
+      "#setTagSuggestions"
+    );
 
     $("#setPhotos")?.addEventListener("change", event => {
       addSelectedPhotos(event.target.files);
