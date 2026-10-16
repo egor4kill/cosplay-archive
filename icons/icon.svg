@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="115" fill="#17131f"/>
+  <rect x="32" y="32" width="448" height="448" rx="90" fill="#b69aff"/>
+  <text x="256" y="335" font-size="220" font-family="Space Grotesk, Inter, Arial, sans-serif" font-weight="bold" text-anchor="middle" fill="#17131f">CA</text>
+</svg>

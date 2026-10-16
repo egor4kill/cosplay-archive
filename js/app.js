@@ -2447,7 +2447,7 @@
     const nameOf = index =>
       photoDownloadName(photos[index], base, index, { keepOriginal: false });
 
-    // Chromium: пишем сразу в выбранную папку, без «пачки» отдельных загрузок.
+    // Chromium на ПК: пишем сразу в выбранную папку
     if (typeof window.showDirectoryPicker === "function") {
       try {
         const directory = await window.showDirectoryPicker({ mode: "readwrite" });
@@ -2462,12 +2462,30 @@
         showToast(`Скачано фотографий: ${photos.length}.`);
         return;
       } catch (error) {
-        if (error?.name === "AbortError") return; // выбор папки отменён
-        // Иначе откатываемся к обычным загрузкам ниже.
+        if (error?.name === "AbortError") return; // выбор папки отменён пользователем
       }
     }
 
-    // Запасной путь для браузеров без File System Access API.
+    // Мобильные устройства, Safari, Firefox: скачиваем единым ZIP-архивом
+    if (typeof window.JSZip === "function") {
+      showProgress("Создание ZIP-архива…");
+      try {
+        const zip = new window.JSZip();
+        for (let index = 0; index < photos.length; index += 1) {
+          zip.file(nameOf(index), photos[index].blob);
+        }
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        downloadBlob(zipBlob, `${base}.zip`);
+        showToast(`Архив «${base}.zip» скачан.`, "success");
+        return;
+      } catch (error) {
+        console.warn("Ошибка генерации ZIP-архива:", error);
+      } finally {
+        hideProgress();
+      }
+    }
+
+    // Запасной путь для браузеров без JSZip
     photos.forEach((photo, index) => {
       setTimeout(() => downloadBlob(photo.blob, nameOf(index)), index * 400);
     });
@@ -3575,6 +3593,21 @@
       const tombstones = readTombstones();
       const deleted = mergeDeletions(remoteManifest.deletions, tombstones);
 
+      // Физически удаляем файлы удалённых фото из облака, освобождая квоту хранилища
+      if (typeof drive.deleteFile === "function") {
+        for (const deletedPhotoId of deleted.photos) {
+          const entry = remotePhotoMap.get(deletedPhotoId);
+          if (entry?.file?.id) {
+            try {
+              await drive.deleteFile(entry.file.id, entry.targetId);
+              remotePhotoMap.delete(deletedPhotoId);
+            } catch (delError) {
+              console.warn("Не удалось удалить файл из облака:", deletedPhotoId, delError);
+            }
+          }
+        }
+      }
+
       const localModels = state.models.filter(m => !deleted.models.has(m.id));
       const localSets = state.sets.filter(s => !deleted.sets.has(s.id));
       const localPhotos = state.photos.filter(p => !deleted.photos.has(p.id));
@@ -4325,6 +4358,42 @@
     });
   }
 
+  // Фоновая генерация превью для старых фото, загруженных без превью
+  async function generateMissingPreviews() {
+    const processing = CONFIG.imageProcessing || {};
+    if (!processing.enabled || !("createImageBitmap" in window)) return;
+
+    const missing = state.photos.filter(p => !p.preview && (p.blob instanceof Blob));
+    if (!missing.length) return;
+
+    console.info(`Cosplay Archive: генерация превью для ${missing.length} старых фото в фоне…`);
+    let updated = 0;
+
+    for (const photo of missing) {
+      try {
+        const preview = await makeImageVersion(photo.blob, {
+          maxDimension: processing.previewMaxDimension || 480,
+          quality: processing.previewQuality || 0.8,
+          type: processing.outputType || "image/webp"
+        });
+
+        if (preview) {
+          photo.preview = preview;
+          await db.put(CONFIG.stores.photos, photo);
+          updated += 1;
+        }
+      } catch (err) {
+        console.warn("Ошибка генерации превью для фото:", photo.id, err);
+      }
+      await new Promise(r => setTimeout(r, 60));
+    }
+
+    if (updated > 0) {
+      console.info(`Cosplay Archive: успешно создано превью для ${updated} фото.`);
+      renderAll();
+    }
+  }
+
   /* -------------------- Запуск -------------------- */
 
   async function init() {
@@ -4345,6 +4414,18 @@
       applyRoute(true);
 
       initDrive();
+
+      // PWA: регистрация Service Worker
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("service-worker.js").catch(err => {
+          console.warn("ServiceWorker registration failed:", err);
+        });
+      }
+
+      // Фоновое создание превью для старых фото без блокировки интерфейса
+      setTimeout(() => {
+        generateMissingPreviews();
+      }, 2500);
 
       console.info(`${CONFIG.appName}: приложение запущено.`);
     } catch (error) {
