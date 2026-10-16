@@ -1,12 +1,4 @@
-/* =========================================================
-   Cosplay Archive — синхронизация с Google Drive
-   Файл: js/drive.js
-
-   Модуль инкапсулирует OAuth (Google Identity Services, поток
-   access token) и обращения к Drive REST API. Наружу отдаёт
-   window.CosplayDrive — небольшой набор промис-функций.
-   ========================================================= */
-
+/* Cosplay Archive — Google Drive multi-account */
 (() => {
   "use strict";
 
@@ -15,6 +7,9 @@
   const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3";
   const FOLDER_MIME = "application/vnd.google-apps.folder";
   const JSON_MIME = "application/json";
+
+  const TOKENS_KEY = "cosplay-gdrive-tokens"; // array of {id,email,access,expiresAt,refresh?}
+  const ACTIVE_KEY = "cosplay-gdrive-active-id";
 
   const config = {
     clientId: "",
@@ -26,47 +21,82 @@
 
   let tokenClient = null;
   let gisPromise = null;
-  let accessToken = "";
-  let tokenExpiresAt = 0;
-  let rootFolderId = "";
-  let photosFolderId = "";
+  let tokens = [];
+  let activeId = null;
+  let rootMap = new Map();
+  let photosMap = new Map();
+
+  function loadAll() {
+    try {
+      const raw = localStorage.getItem(TOKENS_KEY);
+      if (raw) tokens = JSON.parse(raw) || [];
+    } catch {
+      tokens = [];
+    }
+    try {
+      activeId = localStorage.getItem(ACTIVE_KEY) || (tokens[0] && tokens[0].id) || null;
+    } catch {
+      activeId = (tokens[0] && tokens[0].id) || null;
+    }
+    if (!tokens.find(t => t.id === activeId)) activeId = (tokens[0] && tokens[0].id) || null;
+  }
+
+  function saveAll() {
+    try { localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens)); } catch {}
+    try { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); } catch {}
+  }
+
+  function genId() {
+    return crypto.randomUUID ? crypto.randomUUID() : ("gd" + Date.now() + Math.random().toString(36).slice(2, 8));
+  }
+
+  function listTargets() {
+    loadAll();
+    return tokens.map(t => ({ id: t.id, email: t.email || "gdrive", label: t.email ? ("Google Drive (" + t.email + ")") : "Google Drive" }));
+  }
+
+  function getTargetById(id) {
+    loadAll();
+    return tokens.find(t => t.id === id) || null;
+  }
+
+  function getActiveTarget() {
+    loadAll();
+    return getTargetById(activeId) || tokens[0] || null;
+  }
+
+  function setActiveTarget(id) {
+    loadAll();
+    if (getTargetById(id)) { activeId = id; saveAll(); }
+  }
+
+  function configure(o = {}) {
+    config.clientId = String(o.clientId || "");
+    config.scope = o.scope || config.scope;
+    config.rootFolderName = o.rootFolderName || config.rootFolderName;
+    config.manifestName = o.manifestName || config.manifestName;
+    config.photosFolderName = o.photosFolderName || config.photosFolderName;
+  }
+
+  function isConfigured() { return Boolean(config.clientId); }
+
+  function hasToken(tid) {
+    const t = tid ? getTargetById(tid) : getActiveTarget();
+    if (!t) return false;
+    return Boolean(t.access) && Date.now() < (t.expiresAt || 0);
+  }
 
   function loadGis() {
-    if (window.google && window.google.accounts && window.google.accounts.oauth2) {
-      return Promise.resolve();
-    }
-
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) return Promise.resolve();
     if (gisPromise) return gisPromise;
-
     gisPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = GIS_SRC;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(
-        new Error("Не удалось загрузить Google Identity Services.")
-      );
-      document.head.appendChild(script);
+      const s = document.createElement("script");
+      s.src = GIS_SRC; s.async = true; s.defer = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("GIS load failed"));
+      document.head.appendChild(s);
     });
-
     return gisPromise;
-  }
-
-  function configure(options = {}) {
-    config.clientId = String(options.clientId || "");
-    config.scope = options.scope || config.scope;
-    config.rootFolderName = options.rootFolderName || config.rootFolderName;
-    config.manifestName = options.manifestName || config.manifestName;
-    config.photosFolderName = options.photosFolderName || config.photosFolderName;
-  }
-
-  function isConfigured() {
-    return Boolean(config.clientId);
-  }
-
-  function hasToken() {
-    return Boolean(accessToken) && Date.now() < tokenExpiresAt;
   }
 
   function initTokenClient() {
@@ -78,287 +108,189 @@
           callback: () => {}
         });
       }
-
       return tokenClient;
     });
   }
 
-  function requestToken(options) {
+  function requestToken(opts, entry) {
     return new Promise((resolve, reject) => {
-      if (!isConfigured()) {
-        reject(new Error("Не задан Google OAuth Client ID."));
-        return;
-      }
-
-      initTokenClient().then(client => {
-        client.callback = response => {
-          if (response.error) {
-            reject(new Error(
-              response.error_description || response.error
-            ));
-            return;
-          }
-
-          accessToken = response.access_token;
-          const seconds = Number(response.expires_in || 3600);
-          tokenExpiresAt = Date.now() + Math.max(60, seconds - 120) * 1000;
-          resolve(accessToken);
+      if (!isConfigured()) { reject(new Error("no clientId")); return; }
+      initTokenClient().then(c => {
+        c.callback = res => {
+          if (res.error) { reject(new Error(res.error_description || res.error)); return; }
+          const access = res.access_token;
+          const secs = Number(res.expires_in || 3600);
+          const exp = Date.now() + Math.max(60, secs - 120) * 1000;
+          const e = entry || getActiveTarget() || { id: genId(), email: "" };
+          e.access = access; e.expiresAt = exp;
+          if (!e.id) e.id = genId();
+          loadAll();
+          const idx = tokens.findIndex(t => t.id === e.id);
+          if (idx >= 0) tokens[idx] = Object.assign(tokens[idx], e); else tokens.push(e);
+          activeId = e.id; saveAll();
+          resolve(access);
         };
-
-        client.requestAccessToken(options);
+        c.requestAccessToken(opts);
       }).catch(reject);
     });
   }
 
-  function connect() {
-    if (hasToken()) return Promise.resolve(accessToken);
-    return requestToken({ prompt: "select_account" });
+  async function connect(tid) {
+    loadAll();
+    let e = tid ? getTargetById(tid) : getActiveTarget();
+    if (!e) e = { id: genId(), email: "" };
+    if (e.access && Date.now() < (e.expiresAt || 0)) { activeId = e.id; saveAll(); return e.access; }
+    return requestToken({ prompt: "select_account" }, e);
   }
 
-  function trySilentConnect() {
-    if (hasToken()) return Promise.resolve(true);
-
-    return requestToken({ prompt: "" })
-      .then(() => true)
-      .catch(() => false);
+  async function trySilentConnect(tid) {
+    const t = tid ? getTargetById(tid) : getActiveTarget();
+    if (!t) return false;
+    if (t.access && Date.now() < (t.expiresAt || 0)) return true;
+    try { await requestToken({ prompt: "" }, t); return true; } catch { return false; }
   }
 
-  function signOut() {
-    const token = accessToken;
-    accessToken = "";
-    tokenExpiresAt = 0;
-    rootFolderId = "";
-    photosFolderId = "";
+  function signOut(tid) {
+    loadAll();
+    if (tid) { tokens = tokens.filter(t => t.id !== tid); if (activeId === tid) activeId = tokens[0] && tokens[0].id || null; saveAll(); return; }
+    tokens = []; activeId = null; saveAll();
+  }
 
-    if (token && window.google && window.google.accounts
-      && window.google.accounts.oauth2) {
-      try {
-        window.google.accounts.oauth2.revoke(token, () => {});
-      } catch {
-        /* игнорируем */
-      }
+  async function ensureToken(tid) {
+    const t = tid ? getTargetById(tid) : getActiveTarget();
+    if (!t) throw new Error("no token");
+    if (t.access && Date.now() < (t.expiresAt || 0)) return t.access;
+    await requestToken({ prompt: "" }, t);
+    return (getTargetById(t.id) || getActiveTarget()).access;
+  }
+
+  async function apiFetch(url, opts = {}, tid) {
+    const tok = await ensureToken(tid);
+    const h = Object.assign({}, opts.headers || {}, { Authorization: "Bearer " + tok });
+    const resp = await fetch(url, Object.assign({}, opts, { headers: h }));
+    if (!resp.ok) {
+      let d = ""; try { const j = await resp.json(); d = (j.error && j.error.message) || ""; } catch {}
+      throw new Error(d || ("GD " + resp.status));
     }
+    return resp;
   }
 
-  function ensureToken() {
-    if (hasToken()) return Promise.resolve(accessToken);
-    return requestToken({ prompt: "" });
+  function esc(v) { return String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+
+  async function findChild(name, parent, mime, tid) {
+    const c = ["name='" + esc(name) + "'", "'" + parent + "' in parents", "trashed=false"];
+    if (mime) c.push("mimeType='" + mime + "'");
+    const q = encodeURIComponent(c.join(" and "));
+    const r = await apiFetch(DRIVE_API + "/files?q=" + q + "&fields=files(id,name,mimeType)&pageSize=10", {}, tid);
+    const d = await r.json();
+    return (d.files && d.files[0]) || null;
   }
 
-  async function apiFetch(url, options = {}) {
-    const token = await ensureToken();
-
-    const headers = Object.assign({}, options.headers, {
-      Authorization: `Bearer ${token}`
-    });
-
-    const response = await fetch(url, Object.assign({}, options, { headers }));
-
-    if (!response.ok) {
-      let detail = "";
-
-      try {
-        const data = await response.json();
-        detail = data?.error?.message || "";
-      } catch {
-        /* тело не JSON */
-      }
-
-      throw new Error(detail || `Ошибка Google Drive (${response.status}).`);
-    }
-
-    return response;
+  async function createFolder(name, parent, tid) {
+    const r = await apiFetch(DRIVE_API + "/files?fields=id", { method: "POST", headers: { "Content-Type": JSON_MIME }, body: JSON.stringify({ name: name, mimeType: FOLDER_MIME, parents: parent ? [parent] : undefined }) }, tid);
+    const d = await r.json(); return d.id;
   }
 
-  function escapeQueryValue(value) {
-    return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  async function ensureFolders(tid) {
+    const k = tid || "a";
+    if (rootMap.has(k) && photosMap.has(k)) return { rootFolderId: rootMap.get(k), photosFolderId: photosMap.get(k) };
+    const root = await findChild(config.rootFolderName, "root", FOLDER_MIME, tid);
+    const rid = root ? root.id : await createFolder(config.rootFolderName, "root", tid);
+    const pho = await findChild(config.photosFolderName, rid, FOLDER_MIME, tid);
+    const pid = pho ? pho.id : await createFolder(config.photosFolderName, rid, tid);
+    rootMap.set(k, rid); photosMap.set(k, pid);
+    return { rootFolderId: rid, photosFolderId: pid };
   }
 
-  async function findChild(name, parentId, mimeType) {
-    const clauses = [
-      `name = '${escapeQueryValue(name)}'`,
-      `'${parentId}' in parents`,
-      "trashed = false"
-    ];
-
-    if (mimeType) clauses.push(`mimeType = '${mimeType}'`);
-
-    const query = encodeURIComponent(clauses.join(" and "));
-    const url = `${DRIVE_API}/files?q=${query}`
-      + "&fields=files(id,name,mimeType)&pageSize=10";
-
-    const response = await apiFetch(url);
-    const data = await response.json();
-
-    return data.files?.[0] || null;
+  async function uploadNewFile(name, blob, parent, mime, tid) {
+    const cr = await apiFetch(DRIVE_API + "/files?fields=id", { method: "POST", headers: { "Content-Type": JSON_MIME }, body: JSON.stringify({ name: name, parents: parent ? [parent] : undefined, mimeType: mime || "application/octet-stream" }) }, tid);
+    const c = await cr.json();
+    await apiFetch(DRIVE_UPLOAD + "/files/" + c.id + "?uploadType=media", { method: "PATCH", headers: { "Content-Type": mime || "application/octet-stream" }, body: blob }, tid);
+    return c.id;
   }
 
-  async function createFolder(name, parentId) {
-    const response = await apiFetch(`${DRIVE_API}/files?fields=id`, {
-      method: "POST",
-      headers: { "Content-Type": JSON_MIME },
-      body: JSON.stringify({
-        name,
-        mimeType: FOLDER_MIME,
-        parents: parentId ? [parentId] : undefined
-      })
-    });
-
-    const data = await response.json();
-    return data.id;
+  async function updateFileMedia(id, blob, mime, tid) {
+    await apiFetch(DRIVE_UPLOAD + "/files/" + id + "?uploadType=media", { method: "PATCH", headers: { "Content-Type": mime || "application/octet-stream" }, body: blob }, tid);
+    return id;
   }
 
-  async function ensureFolders() {
-    if (rootFolderId && photosFolderId) {
-      return { rootFolderId, photosFolderId };
-    }
-
-    const root = await findChild(config.rootFolderName, "root", FOLDER_MIME);
-    rootFolderId = root ? root.id : await createFolder(config.rootFolderName, "root");
-
-    const photos = await findChild(
-      config.photosFolderName, rootFolderId, FOLDER_MIME
-    );
-    photosFolderId = photos
-      ? photos.id
-      : await createFolder(config.photosFolderName, rootFolderId);
-
-    return { rootFolderId, photosFolderId };
+  async function saveManifest(m, tid) {
+    const f = await ensureFolders(tid);
+    const b = new Blob([JSON.stringify(m)], { type: JSON_MIME });
+    const ex = await findChild(config.manifestName, f.rootFolderId, JSON_MIME, tid);
+    if (ex) return updateFileMedia(ex.id, b, JSON_MIME, tid);
+    return uploadNewFile(config.manifestName, b, f.rootFolderId, JSON_MIME, tid);
   }
 
-  async function uploadNewFile(name, blob, parentId, mimeType) {
-    const createResponse = await apiFetch(`${DRIVE_API}/files?fields=id`, {
-      method: "POST",
-      headers: { "Content-Type": JSON_MIME },
-      body: JSON.stringify({
-        name,
-        parents: parentId ? [parentId] : undefined,
-        mimeType: mimeType || "application/octet-stream"
-      })
-    });
-
-    const created = await createResponse.json();
-
-    await apiFetch(`${DRIVE_UPLOAD}/files/${created.id}?uploadType=media`, {
-      method: "PATCH",
-      headers: { "Content-Type": mimeType || "application/octet-stream" },
-      body: blob
-    });
-
-    return created.id;
+  async function getManifest(tid) {
+    const f = await ensureFolders(tid);
+    const ex = await findChild(config.manifestName, f.rootFolderId, JSON_MIME, tid);
+    if (!ex) return null;
+    const r = await apiFetch(DRIVE_API + "/files/" + ex.id + "?alt=media", {}, tid);
+    return r.json();
   }
 
-  async function updateFileMedia(fileId, blob, mimeType) {
-    await apiFetch(`${DRIVE_UPLOAD}/files/${fileId}?uploadType=media`, {
-      method: "PATCH",
-      headers: { "Content-Type": mimeType || "application/octet-stream" },
-      body: blob
-    });
-
-    return fileId;
-  }
-
-  async function saveManifest(manifestObject) {
-    await ensureFolders();
-
-    const blob = new Blob(
-      [JSON.stringify(manifestObject)],
-      { type: JSON_MIME }
-    );
-
-    const existing = await findChild(
-      config.manifestName, rootFolderId, JSON_MIME
-    );
-
-    if (existing) {
-      return updateFileMedia(existing.id, blob, JSON_MIME);
-    }
-
-    return uploadNewFile(config.manifestName, blob, rootFolderId, JSON_MIME);
-  }
-
-  async function getManifest() {
-    await ensureFolders();
-
-    const existing = await findChild(
-      config.manifestName, rootFolderId, JSON_MIME
-    );
-
-    if (!existing) return null;
-
-    const response = await apiFetch(`${DRIVE_API}/files/${existing.id}?alt=media`);
-    return response.json();
-  }
-
-  async function listPhotos() {
-    await ensureFolders();
-
-    const query = encodeURIComponent(
-      `'${photosFolderId}' in parents and trashed = false`
-    );
-
-    const base = `${DRIVE_API}/files?q=${query}`
-      + "&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=1000";
-
+  async function listPhotos(tid) {
+    const f = await ensureFolders(tid);
+    const q = encodeURIComponent("'" + f.photosFolderId + "' in parents and trashed=false");
+    const base = DRIVE_API + "/files?q=" + q + "&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=1000";
     const map = new Map();
-    let pageToken = "";
-
+    let t = "";
     do {
-      const url = pageToken
-        ? `${base}&pageToken=${encodeURIComponent(pageToken)}`
-        : base;
-
-      const response = await apiFetch(url);
-      const data = await response.json();
-
-      for (const file of data.files || []) {
-        map.set(file.name, file);
-      }
-
-      pageToken = data.nextPageToken || "";
-    } while (pageToken);
-
+      const url = t ? base + "&pageToken=" + encodeURIComponent(t) : base;
+      const r = await apiFetch(url, {}, tid);
+      const d = await r.json();
+      for (const x of (d.files || [])) map.set(x.name, x);
+      t = d.nextPageToken || "";
+    } while (t);
     return map;
   }
 
-  async function uploadPhoto(name, blob, mimeType, existingId) {
-    await ensureFolders();
-
-    if (existingId) {
-      return updateFileMedia(existingId, blob, mimeType);
-    }
-
-    return uploadNewFile(name, blob, photosFolderId, mimeType);
+  async function uploadPhoto(name, blob, mime, exid, tid) {
+    const f = await ensureFolders(tid);
+    if (exid) return updateFileMedia(exid, blob, mime, tid);
+    return uploadNewFile(name, blob, f.photosFolderId, mime, tid);
   }
 
-  async function downloadFile(fileId) {
-    const response = await apiFetch(`${DRIVE_API}/files/${fileId}?alt=media`);
-    return response.blob();
+  async function downloadFile(fid, tid) {
+    const r = await apiFetch(DRIVE_API + "/files/" + fid + "?alt=media", {}, tid);
+    return r.blob();
   }
 
-  async function deleteFile(fileId) {
-    await apiFetch(`${DRIVE_API}/files/${fileId}`, { method: "DELETE" });
+  async function deleteFile(fid, tid) {
+    await apiFetch(DRIVE_API + "/files/" + fid, { method: "DELETE" }, tid);
   }
 
-  const provider = {
+  async function getQuota(tid) {
+    const r = await apiFetch(DRIVE_API + "/about?fields=storageQuota", {}, tid);
+    const d = await r.json();
+    return d.storageQuota || null;
+  }
+
+  const p = {
     id: "gdrive",
     label: "Google Drive",
     configure,
     isConfigured,
-    hasToken,
-    connect,
-    trySilentConnect,
-    signOut,
-    ensureToken,
-    ensureFolders,
-    getManifest,
-    saveManifest,
-    listPhotos,
-    uploadPhoto,
-    downloadFile,
-    deleteFile
+    hasToken: (tid) => hasToken(tid),
+    connect: (tid) => connect(tid),
+    trySilentConnect: (tid) => trySilentConnect(tid),
+    signOut: (tid) => signOut(tid),
+    ensureFolders: (tid) => ensureFolders(tid),
+    getManifest: (tid) => getManifest(tid),
+    saveManifest: (m, tid) => saveManifest(m, tid),
+    listPhotos: (tid) => listPhotos(tid),
+    uploadPhoto: (n, b, m, e, tid) => uploadPhoto(n, b, m, e, tid),
+    downloadFile: (f, tid) => downloadFile(f, tid),
+    deleteFile: (f, tid) => deleteFile(f, tid),
+    getQuota: (tid) => getQuota(tid),
+    listTargets,
+    getTargetById,
+    setActiveTarget,
+    getActiveTarget,
+    activeIdGetter: () => { loadAll(); return activeId; }
   };
 
-  window.CosplayDrive = provider;
-  window.CosplayProviders?.register("gdrive", provider);
+  window.CosplayDrive = p;
+  window.CosplayProviders && window.CosplayProviders.register("gdrive", p);
 })();

@@ -37,32 +37,17 @@
       format: "cosplay-archive-backup",
       version: 1
     },
-    providers: {
-      gdrive: {
-        enabled: false,
-        clientId: "",
-        scope: "https://www.googleapis.com/auth/drive.file",
-        rootFolderName: "Cosplay Archive",
-        manifestName: "archive.json",
-        photosFolderName: "photos",
-        autoSync: true,
-        autoSyncDelayMs: 4000
-      },
-      dropbox: {
-        enabled: false,
-        appKey: "",
-        rootFolderName: "Cosplay Archive",
-        manifestName: "archive.json",
-        photosFolderName: "photos",
-        autoSync: false,
-        autoSyncDelayMs: 4000
-      }
+    multiAccount: {
+      reserveFreeBytes: 200 * 1024 * 1024, // 200 МБ
+      strategy: "fill",                    // fill | roundrobin
+      quotaCacheMs: 60000
     }
   };
 
   // Активный облачный провайдер (обновляется через refreshActiveProvider).
   let drive = null;
   const providers = window.CosplayProviders || null;
+  const quotaCache = new Map(); // key: targetId -> {ts, quota}
 
   function refreshActiveProvider() {
     drive = providers?.getActive() || null;
