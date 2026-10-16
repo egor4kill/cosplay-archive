@@ -26,11 +26,11 @@
     ],
     imageProcessing: {
       enabled: true,
-      storeOriginal: true,
-      maxDimension: 2200,
-      quality: 0.88,
+      storeOriginal: false,
+      maxDimension: 3200,
+      quality: 0.90,
       previewMaxDimension: 480,
-      previewQuality: 0.8,
+      previewQuality: 0.82,
       outputType: "image/webp"
     },
     backup: {
@@ -1825,7 +1825,11 @@
     let bitmap;
 
     try {
-      bitmap = await createImageBitmap(file);
+      try {
+        bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      } catch {
+        bitmap = await createImageBitmap(file);
+      }
 
       const scale = Math.min(
         1,
@@ -1841,6 +1845,9 @@
 
       const context = canvas.getContext("2d");
       if (!context) return null;
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
 
       context.drawImage(bitmap, 0, 0, width, height);
 
@@ -1889,11 +1896,11 @@
       };
     }
 
-    // …либо сжатая копия (прежнее поведение).
+    // …либо сжатая копия Ultra-HD WebP.
     const compressed = canProcess
       ? await makeImageVersion(file, {
-          maxDimension: processing.maxDimension || 2200,
-          quality: processing.quality || 0.88,
+          maxDimension: processing.maxDimension || 3200,
+          quality: processing.quality || 0.90,
           type: processing.outputType || "image/webp"
         })
       : null;

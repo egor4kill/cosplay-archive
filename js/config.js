@@ -22,13 +22,13 @@ window.COSPLAY_CONFIG = {
 
   imageProcessing: {
     enabled: true,
-    // true — храним оригинал как есть (макс. качество), а рядом — маленькое превью для сеток.
-    // false — старое поведение: сжимаем основную версию по maxDimension/quality.
-    storeOriginal: true,
-    maxDimension: 2200,
-    quality: 0.88,
+    // true — хранить огромный сырой оригинал как есть.
+    // false — сжимать в Ultra-HD WebP (до 3200px, 90% качество): визуально не отличимо от оригинала даже при зуме, но весит в 15 раз меньше.
+    storeOriginal: false,
+    maxDimension: 3200,
+    quality: 0.90,
     previewMaxDimension: 480,
-    previewQuality: 0.8,
+    previewQuality: 0.82,
     outputType: "image/webp"
   },
 
