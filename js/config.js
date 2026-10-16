@@ -60,5 +60,13 @@ window.COSPLAY_CONFIG = {
       autoSync: false,
       autoSyncDelayMs: 4000
     }
+  },
+
+  // Мульти-аккаунт: как раскладывать оригиналы по подключённым
+  // Google Drive аккаунтам и сколько места оставлять свободным.
+  multiAccount: {
+    reserveFreeBytes: 200 * 1024 * 1024, // 200 МБ резерва на каждом аккаунте
+    strategy: "fill",                    // fill | roundrobin
+    quotaCacheMs: 60000                  // кэш квоты, мс
   }
 };

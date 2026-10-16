@@ -37,6 +37,18 @@
       format: "cosplay-archive-backup",
       version: 1
     },
+    providers: {
+      gdrive: {
+        enabled: false,
+        clientId: "",
+        scope: "https://www.googleapis.com/auth/drive.file",
+        rootFolderName: "Cosplay Archive",
+        manifestName: "archive.json",
+        photosFolderName: "photos",
+        autoSync: true,
+        autoSyncDelayMs: 4000
+      }
+    },
     multiAccount: {
       reserveFreeBytes: 200 * 1024 * 1024, // 200 МБ
       strategy: "fill",                    // fill | roundrobin
@@ -3264,6 +3276,85 @@
     return [...byId.values()];
   }
 
+  /* -------------------- Мульти-аккаунт (таргеты) -------------------- */
+
+  function providerSupportsTargets(provider) {
+    return Boolean(provider && typeof provider.listTargets === "function");
+  }
+
+  // Список аккаунтов-назначений провайдера. Если провайдер не умеет
+  // несколько аккаунтов — отдаём единственный «виртуальный» таргет.
+  function getProviderTargets(provider) {
+    if (!provider) return [];
+    if (providerSupportsTargets(provider)) {
+      try {
+        const list = provider.listTargets() || [];
+        if (list.length) return list;
+      } catch (error) {
+        console.warn("Не удалось получить список аккаунтов:", error);
+      }
+    }
+    return [{ id: null, label: provider.label || "Облако" }];
+  }
+
+  async function getTargetQuota(provider, targetId) {
+    if (!provider || typeof provider.getQuota !== "function") return null;
+    const cacheMs = CONFIG.multiAccount?.quotaCacheMs ?? 60000;
+    const key = `${provider.id || "p"}::${targetId ?? "a"}`;
+    const cached = quotaCache.get(key);
+    if (cached && Date.now() - cached.ts < cacheMs) return cached.quota;
+    try {
+      const quota = await provider.getQuota(targetId);
+      quotaCache.set(key, { ts: Date.now(), quota });
+      return quota;
+    } catch (error) {
+      console.warn("Не удалось получить квоту:", provider.id, targetId, error);
+      return null;
+    }
+  }
+
+  // Готовим план по каждому аккаунту: сколько свободно (с учётом лимита).
+  async function buildTargetPlans(provider) {
+    const reserve = CONFIG.multiAccount?.reserveFreeBytes ?? 200 * 1024 * 1024;
+    const targets = getProviderTargets(provider);
+    const plans = [];
+    for (const target of targets) {
+      const quota = await getTargetQuota(provider, target.id);
+      let free = null;
+      if (quota) {
+        const limit = Number(quota.limit || 0);
+        const usage = Number(quota.usage || 0);
+        if (limit > 0) free = Math.max(0, limit - usage);
+      }
+      plans.push({ target, free, reserve });
+    }
+    return plans;
+  }
+
+  // Fill-first: заполняем аккаунты по порядку до конца. Возвращаем первый
+  // аккаунт, где помещается фото и остаётся резерв 200 МБ.
+  function pickTargetForSize(plans, size) {
+    if (!plans.length) return null;
+    const need = Number(size || 0);
+    const fits = plans.filter(
+      plan => plan.free === null || plan.free - need >= plan.reserve
+    );
+    if (!fits.length) return null;
+    const strategy = CONFIG.multiAccount?.strategy || "fill";
+    if (strategy === "roundrobin" && pickTargetForSize._idx != null) {
+      const idx = pickTargetForSize._idx % fits.length;
+      pickTargetForSize._idx += 1;
+      return fits[idx];
+    }
+    return fits[0];
+  }
+
+  function targetLabel(provider, targetId) {
+    if (targetId == null) return provider?.label || "Облако";
+    const target = getProviderTargets(provider).find(t => t.id === targetId);
+    return target?.label || target?.email || provider?.label || "Аккаунт";
+  }
+
   function updateDriveUI() {
     const bar = $("#driveBar");
     if (!bar) return;
@@ -3300,6 +3391,39 @@
       } else {
         providerSelect.classList.add("hidden");
       }
+    }
+
+    // Список аккаунтов (мульти-аккаунт) и кнопка добавления.
+    const accountsEl = $("#driveAccounts");
+    const addAccountBtn = $("#driveAddAccountBtn");
+    const multi = Boolean(drive && providerSupportsTargets(drive));
+
+    if (accountsEl) {
+      if (multi && drive) {
+        const targets = getProviderTargets(drive);
+        const activeTarget = typeof drive.getActiveTarget === "function"
+          ? drive.getActiveTarget()
+          : null;
+        const activeTid = activeTarget ? activeTarget.id : null;
+
+        accountsEl.classList.toggle("hidden", !targets.length);
+        accountsEl.innerHTML = targets.map(target => {
+          const active = target.id === activeTid ? " is-active" : "";
+          const tidAttr = escapeHTML(String(target.id));
+          const name = escapeHTML(target.email || target.label || "Аккаунт");
+          return `<span class="drive-account${active}">
+            <button type="button" class="drive-account-pick" data-pick="${tidAttr}" title="Сделать активным">${name}</button>
+            <button type="button" class="drive-account-remove" data-remove="${tidAttr}" title="Удалить аккаунт">×</button>
+          </span>`;
+        }).join("");
+      } else {
+        accountsEl.classList.add("hidden");
+        accountsEl.innerHTML = "";
+      }
+    }
+
+    if (addAccountBtn) {
+      addAccountBtn.classList.toggle("hidden", !(multi && configured && signedIn));
     }
 
     bar.classList.toggle("hidden", !drive);
@@ -3350,7 +3474,7 @@
     }, providerCfg.autoSyncDelayMs || 4000);
   }
 
-  async function driveConnect() {
+  async function driveConnect(addNew = false) {
     if (!drive || !drive.isConfigured()) {
       showToast("Сначала укажите ключи провайдера в js/config.js.", "error");
       return;
@@ -3359,7 +3483,12 @@
     const label = drive.label || "Облако";
 
     try {
-      await drive.connect();
+      if (addNew) {
+        await drive.connect(undefined, true);
+      } else {
+        await drive.connect();
+      }
+      quotaCache.clear();
       state.drive.error = "";
       updateDriveUI();
       showToast(`${label} подключён.`, "success");
@@ -3374,6 +3503,7 @@
 
   function driveSignOut() {
     drive?.signOut();
+    quotaCache.clear();
     state.drive.lastSyncAt = null;
     state.drive.error = "";
     updateDriveUI();
@@ -3414,7 +3544,21 @@
       await drive.ensureFolders();
 
       const remoteManifest = (await drive.getManifest()) || emptyManifest();
-      const remotePhotoMap = await drive.listPhotos();
+
+      const targetList = getProviderTargets(drive);
+      const remotePhotoMap = new Map();
+      for (const target of targetList) {
+        try {
+          const map = await drive.listPhotos(target.id);
+          for (const [name, file] of map) {
+            if (!remotePhotoMap.has(name)) {
+              remotePhotoMap.set(name, { file, targetId: target.id });
+            }
+          }
+        } catch (error) {
+          console.warn("Не удалось получить список фото для аккаунта:", target.id, error);
+        }
+      }
 
       const tombstones = readTombstones();
       const deleted = mergeDeletions(remoteManifest.deletions, tombstones);
@@ -3926,14 +4070,35 @@
     });
 
     // Синхронизация с облаком.
-    $("#driveConnectBtn")?.addEventListener("click", driveConnect);
+    $("#driveConnectBtn")?.addEventListener("click", () => driveConnect(false));
+    $("#driveAddAccountBtn")?.addEventListener("click", () => driveConnect(true));
     $("#driveSyncBtn")?.addEventListener("click", () => syncNow());
     $("#driveSignOutBtn")?.addEventListener("click", driveSignOut);
+    $("#driveAccounts")?.addEventListener("click", event => {
+      const pick = event.target.closest("[data-pick]");
+      const remove = event.target.closest("[data-remove]");
+
+      if (remove) {
+        const tid = remove.getAttribute("data-remove");
+        drive?.signOut?.(tid === "null" ? null : tid);
+        quotaCache.clear();
+        state.drive.lastSyncAt = null;
+        updateDriveUI();
+        return;
+      }
+
+      if (pick && drive?.setActiveTarget) {
+        const tid = pick.getAttribute("data-pick");
+        drive.setActiveTarget(tid === "null" ? null : tid);
+        updateDriveUI();
+      }
+    });
     $("#driveProviderSelect")?.addEventListener("change", event => {
       const id = event.target.value;
       if (providers && id && providers.list().includes(id)) {
         providers.setActive(id);
         refreshActiveProvider();
+        quotaCache.clear();
         state.drive.lastSyncAt = null;
         state.drive.error = "";
         updateDriveUI();

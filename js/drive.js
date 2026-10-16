@@ -81,9 +81,12 @@
   function isConfigured() { return Boolean(config.clientId); }
 
   function hasToken(tid) {
-    const t = tid ? getTargetById(tid) : getActiveTarget();
-    if (!t) return false;
-    return Boolean(t.access) && Date.now() < (t.expiresAt || 0);
+    loadAll();
+    if (tid) {
+      const t = getTargetById(tid);
+      return Boolean(t) && Boolean(t.access) && Date.now() < (t.expiresAt || 0);
+    }
+    return tokens.some(t => Boolean(t.access) && Date.now() < (t.expiresAt || 0));
   }
 
   function loadGis() {
@@ -135,12 +138,20 @@
     });
   }
 
-  async function connect(tid) {
+  async function connect(tid, force) {
     loadAll();
-    let e = tid ? getTargetById(tid) : getActiveTarget();
+    let e = tid ? getTargetById(tid) : (force ? null : getActiveTarget());
     if (!e) e = { id: genId(), email: "" };
-    if (e.access && Date.now() < (e.expiresAt || 0)) { activeId = e.id; saveAll(); return e.access; }
-    return requestToken({ prompt: "select_account" }, e);
+    if (!force && e.access && Date.now() < (e.expiresAt || 0)) { activeId = e.id; saveAll(); return e.access; }
+    const access = await requestToken({ prompt: "select_account" }, e);
+    try {
+      const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + access } });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.email) { const t = getTargetById(e.id); if (t) { t.email = j.email; saveAll(); } }
+      }
+    } catch {}
+    return access;
   }
 
   async function trySilentConnect(tid) {
@@ -273,7 +284,7 @@
     configure,
     isConfigured,
     hasToken: (tid) => hasToken(tid),
-    connect: (tid) => connect(tid),
+    connect: (tid, force) => connect(tid, force),
     trySilentConnect: (tid) => trySilentConnect(tid),
     signOut: (tid) => signOut(tid),
     ensureFolders: (tid) => ensureFolders(tid),

@@ -2467,4 +2467,45 @@ a.button {
   color: var(--text-primary, #eaeaea);
   font-size: 12px;
 }
-.provider-select.hidden { display:none; }
+
+.provider-select.hidden { display: none; }
+
+.drive-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.drive-accounts.hidden { display: none; }
+
+.drive-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #444);
+  background: var(--bg-panel, #151515);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.drive-account.is-active {
+  border-color: var(--accent-color, #80a0ff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color, #80a0ff) 25%, transparent) inset;
+}
+
+.drive-account-pick,
+.drive-account-remove {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+  font: inherit;
+}
+
+.drive-account-remove { opacity: 0.7; }
+.drive-account-remove:hover { opacity: 1; }
