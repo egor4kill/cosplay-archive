@@ -26,8 +26,11 @@
     ],
     imageProcessing: {
       enabled: true,
+      storeOriginal: true,
       maxDimension: 2200,
       quality: 0.88,
+      previewMaxDimension: 480,
+      previewQuality: 0.8,
       outputType: "image/webp"
     },
     backup: {
@@ -610,18 +613,24 @@
     return state.photos.find(photo => photo.id === id);
   }
 
-  function photoURL(photo) {
+  function photoURL(photo, variant = "full") {
     if (!photo) return "";
 
-    if (photo.blob instanceof Blob) {
-      if (!state.objectURLs.has(photo.id)) {
-        state.objectURLs.set(
-          photo.id,
-          URL.createObjectURL(photo.blob)
-        );
+    const previewBlob = variant === "preview" && photo.preview instanceof Blob
+      ? photo.preview
+      : null;
+
+    const blob = previewBlob
+      || (photo.blob instanceof Blob ? photo.blob : null);
+
+    if (blob) {
+      const key = previewBlob ? `${photo.id}:preview` : photo.id;
+
+      if (!state.objectURLs.has(key)) {
+        state.objectURLs.set(key, URL.createObjectURL(blob));
       }
 
-      return state.objectURLs.get(photo.id);
+      return state.objectURLs.get(key);
     }
 
     if (typeof photo.dataURL === "string" && photo.dataURL) {
@@ -849,7 +858,7 @@
     const setsCount = countModelSets(model.id);
     const tags = model.tags || [];
     const cover = getModelCover(model.id);
-    const coverURL = cover ? photoURL(cover) : "";
+    const coverURL = cover ? photoURL(cover, "preview") : "";
 
     return `
       <article class="archive-card model-card" data-model-id="${escapeHTML(model.id)}"
@@ -890,7 +899,7 @@
     const cover = getCover(set);
     const tags = set.tags || [];
     const rating = Number(set.rating || 0);
-    const image = cover ? photoURL(cover) : "";
+    const image = cover ? photoURL(cover, "preview") : "";
     const photoCount = getSetPhotos(set).length;
 
     return `
@@ -1153,7 +1162,7 @@
       header.innerHTML = `
         <div class="model-detail-hero">
           <div class="model-avatar">${cover
-            ? `<img src="${photoURL(cover)}" alt="${escapeHTML(model.name)}">`
+            ? `<img src="${photoURL(cover, "preview")}" alt="${escapeHTML(model.name)}">`
             : escapeHTML(getModelInitial(model))}</div>
           <div class="hero-content">
             <p class="eyebrow">Модель</p>
@@ -1693,7 +1702,7 @@
     const photos = getSetPhotos(set);
 
     container.innerHTML = photos.map((photo, index) => {
-      const url = photoURL(photo);
+      const url = photoURL(photo, "preview");
       const isCover = photo.id === state.draftCoverPhotoId;
 
       return `
@@ -1712,27 +1721,14 @@
     }).join("");
   }
 
-  async function prepareImage(file) {
-    if (!file || !CONFIG.allowedImageTypes.includes(file.type)) {
-      throw new Error(`Формат файла «${file?.name || "неизвестно"}» не поддерживается.`);
-    }
-
-    if (!CONFIG.imageProcessing?.enabled || !("createImageBitmap" in window)) {
-      return {
-        id: uid(),
-        blob: file,
-        name: file.name,
-        type: file.type,
-        createdAt: new Date().toISOString()
-      };
-    }
+  async function makeImageVersion(file, { maxDimension, quality, type }) {
+    if (!("createImageBitmap" in window)) return null;
 
     let bitmap;
 
     try {
       bitmap = await createImageBitmap(file);
 
-      const maxDimension = CONFIG.imageProcessing.maxDimension || 2200;
       const scale = Math.min(
         1,
         maxDimension / Math.max(bitmap.width, bitmap.height)
@@ -1746,59 +1742,78 @@
       canvas.height = height;
 
       const context = canvas.getContext("2d");
-
-      if (!context) {
-        bitmap.close?.();
-        return {
-          id: uid(),
-          blob: file,
-          name: file.name,
-          type: file.type,
-          createdAt: new Date().toISOString()
-        };
-      }
+      if (!context) return null;
 
       context.drawImage(bitmap, 0, 0, width, height);
-      bitmap.close?.();
 
       const blob = await new Promise(resolve => {
-        canvas.toBlob(
-          resolve,
-          CONFIG.imageProcessing.outputType || "image/webp",
-          CONFIG.imageProcessing.quality || 0.88
-        );
+        canvas.toBlob(resolve, type || "image/webp", quality);
       });
 
-      // Если WebP не поддерживается, сохраняем исходник.
-      if (!blob || blob.size >= file.size) {
-        return {
-          id: uid(),
-          blob: file,
-          name: file.name,
-          type: file.type,
-          createdAt: new Date().toISOString()
-        };
-      }
-
-      return {
-        id: uid(),
-        blob,
-        name: file.name.replace(/\.[^.]+$/, "") + ".webp",
-        type: blob.type,
-        createdAt: new Date().toISOString()
-      };
+      return blob || null;
     } catch (error) {
+      console.warn("Не удалось построить изображение.", error);
+      return null;
+    } finally {
       bitmap?.close?.();
-      console.warn("Не удалось обработать фото; будет сохранён оригинал.", error);
+    }
+  }
 
+  async function prepareImage(file) {
+    if (!file || !CONFIG.allowedImageTypes.includes(file.type)) {
+      throw new Error(`Формат файла «${file?.name || "неизвестно"}» не поддерживается.`);
+    }
+
+    const processing = CONFIG.imageProcessing || {};
+    const id = uid();
+    const createdAt = new Date().toISOString();
+    const canProcess = Boolean(processing.enabled)
+      && ("createImageBitmap" in window);
+
+    // Маленькое превью для сеток — всегда (кэш, не синхронизируется).
+    const preview = canProcess
+      ? await makeImageVersion(file, {
+          maxDimension: processing.previewMaxDimension || 480,
+          quality: processing.previewQuality || 0.8,
+          type: processing.outputType || "image/webp"
+        })
+      : null;
+
+    // Основная версия: оригинал как есть (макс. качество)…
+    if (processing.storeOriginal !== false) {
       return {
-        id: uid(),
+        id,
         blob: file,
+        preview,
         name: file.name,
         type: file.type,
-        createdAt: new Date().toISOString()
+        createdAt
       };
     }
+
+    // …либо сжатая копия (прежнее поведение).
+    const compressed = canProcess
+      ? await makeImageVersion(file, {
+          maxDimension: processing.maxDimension || 2200,
+          quality: processing.quality || 0.88,
+          type: processing.outputType || "image/webp"
+        })
+      : null;
+
+    const blob = compressed && compressed.size < file.size
+      ? compressed
+      : file;
+
+    return {
+      id,
+      blob,
+      preview,
+      name: blob === file
+        ? file.name
+        : file.name.replace(/\.[^.]+$/, "") + ".webp",
+      type: blob.type,
+      createdAt
+    };
   }
 
   async function addSelectedPhotos(fileList) {
@@ -1859,7 +1874,7 @@
     const photos = getSetPhotos(existingSet);
 
     container.innerHTML = photos.map((photo, index) => {
-      const url = photoURL(photo);
+      const url = photoURL(photo, "preview");
       const isCover = photo.id === state.draftCoverPhotoId;
 
       return `
@@ -2065,10 +2080,10 @@
         try {
           const prepared = await prepareImage(file);
           state.massUploadPhotos.push(prepared);
-          state.massUploadObjectURLs.set(
-            prepared.id,
-            URL.createObjectURL(prepared.blob)
-          );
+      state.massUploadObjectURLs.set(
+        prepared.id,
+        URL.createObjectURL(prepared.preview || prepared.blob)
+      );
           added += 1;
         } catch (error) {
           console.warn(`Файл «${file.name}» пропущен.`, error);
@@ -2549,9 +2564,9 @@
             ${photos.map((photo, photoIndex) => `
               <button type="button" data-action="lightbox"
                 data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
-                <img src="${photoURL(photo)}"
-                  alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
-                  loading="lazy">
+                 <img src="${photoURL(photo, "preview")}"
+                   alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
+                   loading="lazy">
               </button>
             `).join("")}
           </div>`
@@ -2999,7 +3014,11 @@
         photos.push({
           ...photo,
           blob: undefined,
-          dataURL: await blobToDataURL(photo.blob)
+          preview: undefined,
+          dataURL: await blobToDataURL(photo.blob),
+          previewDataURL: photo.preview instanceof Blob
+            ? await blobToDataURL(photo.preview)
+            : undefined
         });
       }
 
@@ -3095,11 +3114,16 @@
           throw new Error("В резервной копии найдена фотография без данных.");
         }
 
-        const { dataURL, ...metadata } = photo;
+        const { dataURL, previewDataURL, ...metadata } = photo;
+        const blob = dataURLToBlob(dataURL);
+        const preview = typeof previewDataURL === "string" && previewDataURL
+          ? dataURLToBlob(previewDataURL)
+          : null;
 
         return {
           ...metadata,
-          blob: dataURLToBlob(dataURL)
+          blob,
+          preview
         };
       });
 
@@ -3396,10 +3420,14 @@
 
         delete meta.blob;
         delete meta.dataURL;
+        delete meta.preview;
 
         // Восстанавливаем картинку по цепочке: локальный blob →
         // сохранённый dataURL → скачивание с Google Drive.
         let blob = local?.blob instanceof Blob ? local.blob : null;
+        const previewBlob = local?.preview instanceof Blob
+          ? local.preview
+          : null;
 
         if (!blob && typeof local?.dataURL === "string" && local.dataURL) {
           try {
@@ -3441,6 +3469,7 @@
         const record = { ...meta };
 
         if (blob) record.blob = blob;
+        if (previewBlob) record.preview = previewBlob;
         if (driveFileId) record.driveFileId = driveFileId;
         photos.push(record);
 
