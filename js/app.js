@@ -1233,18 +1233,32 @@
     }
   }
 
-  function renderStats() {
+  async function renderStats() {
     const element = $("#footerStats");
     if (!element) return;
 
     const favorites = state.sets.filter(set => set.favorite).length;
     const photosCount = state.photos.length;
 
-    element.textContent =
+    let text =
       `${state.models.length} ${pluralize(state.models.length, "модель", "модели", "моделей")} · ` +
       `${state.sets.length} ${pluralize(state.sets.length, "сет", "сета", "сетов")} · ` +
       `${photosCount} ${pluralize(photosCount, "фотография", "фотографии", "фотографий")} · ` +
       `${favorites} в избранном`;
+
+    if (navigator.storage && typeof navigator.storage.estimate === "function") {
+      try {
+        const est = await navigator.storage.estimate();
+        if (est.usage) {
+          const sizeText = est.usage > 1024 * 1024 * 1024
+            ? `${(est.usage / (1024 * 1024 * 1024)).toFixed(2)} ГБ`
+            : `${(est.usage / (1024 * 1024)).toFixed(0)} МБ`;
+          text += ` · ${sizeText} в памяти`;
+        }
+      } catch {}
+    }
+
+    element.textContent = text;
   }
 
   function renderAll() {
@@ -4414,6 +4428,21 @@
       applyRoute(true);
 
       initDrive();
+
+      // Защита от случайной очистки IndexedDB браузером (iOS Safari, Android Chrome)
+      if (navigator.storage && typeof navigator.storage.persist === "function") {
+        navigator.storage.persist().catch(() => {});
+      }
+
+      // Авто-синхронизация при возвращении на вкладку / разблокировке телефона
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          const last = state.drive.lastSyncAt ? Date.parse(state.drive.lastSyncAt) : 0;
+          if (Date.now() - last > 90000) {
+            syncNow({ silent: true });
+          }
+        }
+      });
 
       // PWA: регистрация Service Worker
       if ("serviceWorker" in navigator) {
