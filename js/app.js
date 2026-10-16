@@ -50,7 +50,7 @@
       }
     },
     multiAccount: {
-      reserveFreeBytes: 200 * 1024 * 1024, // 200 МБ
+      reserveFreeBytes: 250 * 1024 * 1024, // 250 МБ (200-300 МБ)
       strategy: "fill",                    // fill | roundrobin
       quotaCacheMs: 60000
     }
@@ -3289,7 +3289,18 @@
     if (providerSupportsTargets(provider)) {
       try {
         const list = provider.listTargets() || [];
-        if (list.length) return list;
+        if (list.length) {
+          const activeTarget = typeof provider.getActiveTarget === "function"
+            ? provider.getActiveTarget()
+            : null;
+          if (activeTarget && activeTarget.id) {
+            return [
+              activeTarget,
+              ...list.filter(t => t.id !== activeTarget.id)
+            ];
+          }
+          return list;
+        }
       } catch (error) {
         console.warn("Не удалось получить список аккаунтов:", error);
       }
@@ -3315,7 +3326,7 @@
 
   // Готовим план по каждому аккаунту: сколько свободно (с учётом лимита).
   async function buildTargetPlans(provider) {
-    const reserve = CONFIG.multiAccount?.reserveFreeBytes ?? 200 * 1024 * 1024;
+    const reserve = CONFIG.multiAccount?.reserveFreeBytes ?? 250 * 1024 * 1024;
     const targets = getProviderTargets(provider);
     const plans = [];
     for (const target of targets) {
@@ -3341,7 +3352,8 @@
     );
     if (!fits.length) return null;
     const strategy = CONFIG.multiAccount?.strategy || "fill";
-    if (strategy === "roundrobin" && pickTargetForSize._idx != null) {
+    if (strategy === "roundrobin") {
+      pickTargetForSize._idx = pickTargetForSize._idx || 0;
       const idx = pickTargetForSize._idx % fits.length;
       pickTargetForSize._idx += 1;
       return fits[idx];
@@ -3587,6 +3599,12 @@
       const photos = [];
       const manifestPhotos = [];
       const uploadErrors = [];
+      let plans = [];
+      try {
+        plans = await buildTargetPlans(drive);
+      } catch (error) {
+        console.warn("Не удалось построить план таргетов:", error);
+      }
 
       for (const id of photoIds) {
         const local = localPhotoById.get(id);
@@ -3612,13 +3630,20 @@
           }
         }
 
-        const existingFile = remotePhotoMap.get(id) || null;
+        const existingEntry = remotePhotoMap.get(id) || null;
+        const existingFile = existingEntry?.file || null;
+
         let driveFileId =
           remote?.driveFileId || local?.driveFileId || existingFile?.id || null;
+        let providerTargetId =
+          existingEntry?.targetId ??
+          remote?.providerTargetId ??
+          local?.providerTargetId ??
+          null;
 
         if (!blob && driveFileId) {
           try {
-            blob = await drive.downloadFile(driveFileId);
+            blob = await drive.downloadFile(driveFileId, providerTargetId);
           } catch (error) {
             console.warn("Не удалось скачать фото с Drive:", id, error);
           }
@@ -3630,12 +3655,37 @@
           try {
             if (existingFile) {
               driveFileId = existingFile.id;
+              providerTargetId = providerTargetId ?? existingEntry?.targetId ?? null;
             } else {
-              driveFileId = await drive.uploadPhoto(id, blob, mimeType, null);
+              let uploaded = false;
+              while (!uploaded) {
+                const plan = pickTargetForSize(plans, blob.size || 0);
+                if (!plan) {
+                  const reserveMb = Math.round((CONFIG.multiAccount?.reserveFreeBytes ?? 250 * 1024 * 1024) / (1024 * 1024));
+                  throw new Error(`не хватает места на подключённых аккаунтах (резерв ${reserveMb} МБ)`);
+                }
+                const tid = plan.target.id ?? null;
+                try {
+                  driveFileId = await drive.uploadPhoto(id, blob, mimeType, null, tid);
+                  providerTargetId = tid;
+                  if (plan.free !== null) {
+                    plan.free = Math.max(0, plan.free - (blob.size || 0));
+                  }
+                  uploaded = true;
+                } catch (uploadErr) {
+                  const msg = String(uploadErr.message || "");
+                  if (msg.includes("storageQuotaExceeded") || msg.includes("quota") || msg.includes("insufficientFileStorageQuota")) {
+                    console.warn(`Аккаунт ${targetLabel(drive, tid)} переполнен при загрузке, переключаемся на следующий.`, uploadErr);
+                    plan.free = 0;
+                    continue;
+                  }
+                  throw uploadErr;
+                }
+              }
             }
           } catch (error) {
             uploadErrors.push(id);
-            console.warn("Не удалось выгрузить фото на Drive:", id, error);
+            console.warn("Не удалось выгрузить фото в облако:", id, error);
           }
         }
 
@@ -3648,11 +3698,14 @@
         if (driveFileId) record.driveFileId = driveFileId;
         // provider: сохраняем активный провайдер фото.
         record.provider = drive.id || record.provider;
+        if (providerTargetId != null) record.providerTargetId = providerTargetId;
+
         photos.push(record);
 
-        manifestPhotos.push(
-          driveFileId ? { ...meta, driveFileId, provider: drive.id || meta.provider } : { ...meta, provider: drive.id || meta.provider }
-        );
+        const manifestMeta = { ...meta, provider: drive.id || meta.provider };
+        if (driveFileId) manifestMeta.driveFileId = driveFileId;
+        if (providerTargetId != null) manifestMeta.providerTargetId = providerTargetId;
+        manifestPhotos.push(manifestMeta);
       }
 
       const modelIds = new Set(models.map(m => m.id));
@@ -3696,7 +3749,18 @@
 
       writeTombstones({ models: [], sets: [], photos: [] });
 
-      await drive.saveManifest(manifest);
+      const targetListForSave = getProviderTargets(drive);
+      if (targetListForSave.length > 0) {
+        for (const target of targetListForSave) {
+          try {
+            await drive.saveManifest(manifest, target.id);
+          } catch (error) {
+            console.warn("Не удалось сохранить манифест для аккаунта:", target.id, error);
+          }
+        }
+      } else {
+        await drive.saveManifest(manifest);
+      }
 
       await refreshData();
       renderAll();
@@ -3722,6 +3786,7 @@
         showToast(`Синхронизация не удалась: ${error.message}`, "error");
       }
     } finally {
+      quotaCache.clear();
       state.drive.syncing = false;
       hideProgress();
       updateDriveUI();

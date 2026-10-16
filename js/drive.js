@@ -13,7 +13,7 @@
 
   const config = {
     clientId: "",
-    scope: "https://www.googleapis.com/auth/drive.file",
+    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email",
     rootFolderName: "Cosplay Archive",
     manifestName: "archive.json",
     photosFolderName: "photos"
@@ -57,7 +57,8 @@
 
   function getTargetById(id) {
     loadAll();
-    return tokens.find(t => t.id === id) || null;
+    if (!id) return null;
+    return tokens.find(t => t.id === id || (t.email && t.email === id)) || null;
   }
 
   function getActiveTarget() {
@@ -128,12 +129,16 @@
           e.access = access; e.expiresAt = exp;
           if (!e.id) e.id = genId();
           loadAll();
-          const idx = tokens.findIndex(t => t.id === e.id);
+          const idx = tokens.findIndex(t => t.id === e.id || (t.email && e.email && t.email === e.email));
           if (idx >= 0) tokens[idx] = Object.assign(tokens[idx], e); else tokens.push(e);
           activeId = e.id; saveAll();
           resolve(access);
         };
-        c.requestAccessToken(opts);
+        const reqOpts = Object.assign({}, opts);
+        if (entry && entry.email && !reqOpts.hint) {
+          reqOpts.hint = entry.email;
+        }
+        c.requestAccessToken(reqOpts);
       }).catch(reject);
     });
   }
@@ -148,7 +153,24 @@
       const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: "Bearer " + access } });
       if (r.ok) {
         const j = await r.json();
-        if (j.email) { const t = getTargetById(e.id); if (t) { t.email = j.email; saveAll(); } }
+        if (j.email) {
+          loadAll();
+          const existing = tokens.find(t => t.id !== e.id && t.email === j.email);
+          if (existing) {
+            existing.access = e.access;
+            existing.expiresAt = e.expiresAt;
+            tokens = tokens.filter(t => t.id !== e.id);
+            activeId = existing.id;
+          } else {
+            const t = tokens.find(tok => tok.id === e.id);
+            if (t) {
+              t.email = j.email;
+              t.id = j.email;
+              if (activeId === e.id) activeId = j.email;
+            }
+          }
+          saveAll();
+        }
       }
     } catch {}
     return access;
@@ -168,7 +190,9 @@
   }
 
   async function ensureToken(tid) {
-    const t = tid ? getTargetById(tid) : getActiveTarget();
+    loadAll();
+    let t = tid ? getTargetById(tid) : getActiveTarget();
+    if (!t && tid) t = getActiveTarget();
     if (!t) throw new Error("no token");
     if (t.access && Date.now() < (t.expiresAt || 0)) return t.access;
     await requestToken({ prompt: "" }, t);

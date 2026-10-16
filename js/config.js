@@ -44,7 +44,7 @@ window.COSPLAY_CONFIG = {
     gdrive: {
       enabled: true,
       clientId: "482187558997-r79ijrr1fus8f9sggmlc0d7rgimde73u.apps.googleusercontent.com",
-      scope: "https://www.googleapis.com/auth/drive.file",
+      scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email",
       rootFolderName: "Cosplay Archive",
       manifestName: "archive.json",
       photosFolderName: "photos",
@@ -65,7 +65,7 @@ window.COSPLAY_CONFIG = {
   // Мульти-аккаунт: как раскладывать оригиналы по подключённым
   // Google Drive аккаунтам и сколько места оставлять свободным.
   multiAccount: {
-    reserveFreeBytes: 200 * 1024 * 1024, // 200 МБ резерва на каждом аккаунте
+    reserveFreeBytes: 250 * 1024 * 1024, // 250 МБ резерва на каждом аккаунте (200-300 МБ)
     strategy: "fill",                    // fill | roundrobin
     quotaCacheMs: 60000                  // кэш квоты, мс
   }
