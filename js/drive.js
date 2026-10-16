@@ -26,15 +26,21 @@
   let rootMap = new Map();
   let photosMap = new Map();
 
+  // Очищаем старые токены из localStorage, чтобы они не сохранялись между закрытиями сайта
+  try {
+    localStorage.removeItem(TOKENS_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
+  } catch {}
+
   function loadAll() {
     try {
-      const raw = localStorage.getItem(TOKENS_KEY);
+      const raw = sessionStorage.getItem(TOKENS_KEY);
       if (raw) tokens = JSON.parse(raw) || [];
     } catch {
       tokens = [];
     }
     try {
-      activeId = localStorage.getItem(ACTIVE_KEY) || (tokens[0] && tokens[0].id) || null;
+      activeId = sessionStorage.getItem(ACTIVE_KEY) || (tokens[0] && tokens[0].id) || null;
     } catch {
       activeId = (tokens[0] && tokens[0].id) || null;
     }
@@ -42,8 +48,8 @@
   }
 
   function saveAll() {
-    try { localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens)); } catch {}
-    try { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); } catch {}
+    try { sessionStorage.setItem(TOKENS_KEY, JSON.stringify(tokens)); } catch {}
+    try { if (activeId) sessionStorage.setItem(ACTIVE_KEY, activeId); } catch {}
   }
 
   function genId() {
@@ -204,6 +210,12 @@
     tokens = [];
     activeId = null;
     saveAll();
+    try {
+      sessionStorage.removeItem(TOKENS_KEY);
+      sessionStorage.removeItem(ACTIVE_KEY);
+      localStorage.removeItem(TOKENS_KEY);
+      localStorage.removeItem(ACTIVE_KEY);
+    } catch {}
   }
 
   async function ensureToken(tid) {

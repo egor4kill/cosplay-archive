@@ -3375,6 +3375,13 @@
     }
   }
 
+  function clearTombstones() {
+    try {
+      localStorage.removeItem(TOMBSTONE_KEY);
+      sessionStorage.removeItem(TOMBSTONE_KEY);
+    } catch {}
+  }
+
   function recordDeletion(type, ids) {
     const list = Array.isArray(ids) ? ids : [ids];
     const data = readTombstones();
@@ -3684,6 +3691,7 @@
     // При выходе из аккаунта очищаем локальную базу и память, чтобы фото не оставались на устройстве
     try {
       await db.clearAll();
+      clearTombstones();
     } catch (e) {
       console.warn("Ошибка очистки базы данных:", e);
     }
@@ -4620,7 +4628,25 @@
   async function init() {
     try {
       await db.open();
-      await refreshData();
+
+      initDrive();
+
+      // Если пользователь не в аккаунте (закрыл сайт и открыл заново, либо вышел):
+      // полностью очищаем локальную базу данных, чтобы на устройстве ничего не оставалось
+      if (!isUserAuthenticated()) {
+        try {
+          await db.clearAll();
+          clearTombstones();
+        } catch (e) {
+          console.warn("Ошибка очистки базы данных:", e);
+        }
+        state.models = [];
+        state.sets = [];
+        state.photos = [];
+        cleanupObjectURLs();
+      } else {
+        await refreshData();
+      }
 
       bindEvents();
 
@@ -4630,15 +4656,6 @@
       }
 
       window.addEventListener("hashchange", () => applyRoute());
-
-      initDrive();
-
-      // Если пользователь не в аккаунте, фото и каталог не отображаются
-      if (!isUserAuthenticated()) {
-        state.models = [];
-        state.sets = [];
-        state.photos = [];
-      }
 
       renderAll();
       applyRoute(true);
@@ -4656,6 +4673,11 @@
             syncNow({ silent: true });
           }
         }
+      });
+
+      // При закрытии страницы освобождаем объектные ссылки в памяти
+      window.addEventListener("pagehide", () => {
+        cleanupObjectURLs();
       });
 
       // PWA: регистрация Service Worker

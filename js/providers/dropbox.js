@@ -1,4 +1,4 @@
-﻿/* =========================================================
+/* =========================================================
    Cosplay Archive — провайдер Dropbox
    Файл: js/providers/dropbox.js
 
@@ -34,7 +34,7 @@
 
   function loadTokens() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
       accessToken = data.access || "";
@@ -47,7 +47,7 @@
 
   function saveTokens() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
         access: accessToken,
         expiresAt: tokenExpiresAt,
         refresh: refreshToken
@@ -62,6 +62,7 @@
     tokenExpiresAt = 0;
     refreshToken = "";
     try {
+      sessionStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(STORAGE_KEY);
     } catch {
       /* ignore */
