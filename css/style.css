@@ -1366,48 +1366,7 @@ input[type="checkbox"] {
   text-align: center;
 }
 
-/* -------------------- Просмотр сета -------------------- */
-
-#viewSetDialog {
-  width: min(1040px, calc(100vw - 28px));
-}
-
-#viewSetDialog .dialog-form {
-  gap: 14px;
-}
-
-.view-set-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.view-set-heading h2 {
-  margin: 0;
-  font-size: clamp(22px, 3vw, 31px);
-  line-height: 1.25;
-}
-
-.view-set-heading p {
-  margin: 7px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.view-set-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.view-set-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
+/* -------------------- Описание сета -------------------- */
 
 .view-description {
   margin: 0;
@@ -1415,14 +1374,6 @@ input[type="checkbox"] {
   font-size: 14px;
   line-height: 1.75;
   overflow-wrap: anywhere;
-}
-
-#viewSetTags {
-  margin-bottom: 0;
-}
-
-.view-set-dialog {
-  width: min(1040px, calc(100vw - 28px));
 }
 
 .photo-gallery button {
@@ -1707,7 +1658,6 @@ h3,
 .section-heading h2,
 .dialog-heading h2,
 .model-detail-hero h1,
-.view-set-heading h2,
 .empty-state h2,
 .empty-state h3,
 .card-title {
@@ -2261,14 +2211,6 @@ h3,
   .photo-gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-  }
-
-  .view-set-heading {
-    gap: 10px;
-  }
-
-  .view-set-heading h2 {
-    font-size: 22px;
   }
 
   .dialog-actions {
