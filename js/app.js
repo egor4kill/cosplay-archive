@@ -627,6 +627,32 @@
     return state.photos.find(photo => photo.id === id);
   }
 
+  // Временный кэш потоковых URL оригиналов из облака (в оперативной памяти, не в IndexedDB)
+  const streamCache = new Map();
+
+  async function loadFullPhotoURL(photo) {
+    if (!photo) return "";
+    if (photo.blob instanceof Blob) {
+      return photoURL(photo, "full");
+    }
+    if (streamCache.has(photo.id)) {
+      return streamCache.get(photo.id);
+    }
+    if (photo.driveFileId && drive) {
+      try {
+        const blob = await drive.downloadFile(photo.driveFileId, photo.providerTargetId);
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          streamCache.set(photo.id, url);
+          return url;
+        }
+      } catch (err) {
+        console.warn("Не удалось подгрузить фото из облака:", photo.id, err);
+      }
+    }
+    return photoURL(photo, "preview");
+  }
+
   function photoURL(photo, variant = "full") {
     if (!photo) return "";
 
@@ -660,6 +686,11 @@
     }
 
     state.objectURLs.clear();
+
+    for (const url of streamCache.values()) {
+      URL.revokeObjectURL(url);
+    }
+    streamCache.clear();
   }
 
   async function refreshData() {
@@ -2403,8 +2434,8 @@
 
   /* -------------------- Скачивание фотографий -------------------- */
 
-  function photoExtension(blob) {
-    const type = (blob && blob.type) || "";
+  function photoExtension(blob, fallbackType = "") {
+    const type = (blob && blob.type) || fallbackType || "";
     if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
     if (type.includes("png")) return "png";
     if (type.includes("gif")) return "gif";
@@ -2423,7 +2454,7 @@
   }
 
   function photoDownloadName(photo, base, index, { keepOriginal = true } = {}) {
-    const extension = photoExtension(photo?.blob);
+    const extension = photoExtension(photo?.blob, photo?.type);
 
     if (keepOriginal) {
       const raw = String(photo?.name || "").replace(/\.[^.]+$/, "").trim();
@@ -2435,14 +2466,30 @@
     return `${base}-${number}.${extension}`;
   }
 
-  function downloadCurrentPhoto() {
+  async function downloadCurrentPhoto() {
     const photo = state.lightboxPhotos[state.lightboxIndex];
     if (!photo) return;
 
+    let blob = photo.blob;
+    if (!(blob instanceof Blob) && photo.driveFileId && drive) {
+      showToast("Загрузка оригинала из облака…");
+      try {
+        blob = await drive.downloadFile(photo.driveFileId, photo.providerTargetId);
+      } catch (err) {
+        showToast("Не удалось скачать фото из облака.", "error");
+        return;
+      }
+    }
+
+    if (!blob) {
+      showToast("Фотография недоступна для скачивания.", "error");
+      return;
+    }
+
     const base = downloadBaseName(getSet(state.viewedSetId));
     downloadBlob(
-      photo.blob,
-      photoDownloadName(photo, base, state.lightboxIndex)
+      blob,
+      photoDownloadName({ ...photo, blob }, base, state.lightboxIndex)
     );
     showToast("Фото скачано.");
   }
@@ -2461,48 +2508,75 @@
     const nameOf = index =>
       photoDownloadName(photos[index], base, index, { keepOriginal: false });
 
+    const fetchPhotoBlob = async (photo) => {
+      if (photo.blob instanceof Blob) return photo.blob;
+      if (photo.driveFileId && drive) {
+        try {
+          return await drive.downloadFile(photo.driveFileId, photo.providerTargetId);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    };
+
     // Chromium на ПК: пишем сразу в выбранную папку
     if (typeof window.showDirectoryPicker === "function") {
       try {
         const directory = await window.showDirectoryPicker({ mode: "readwrite" });
+        showProgress(`Загрузка фото из облака (0/${photos.length})…`);
 
         for (let index = 0; index < photos.length; index += 1) {
-          const handle = await directory.getFileHandle(nameOf(index), { create: true });
+          showProgress(`Загрузка фото (${index + 1}/${photos.length})…`);
+          const blob = await fetchPhotoBlob(photos[index]);
+          if (!blob) continue;
+          const handle = await directory.getFileHandle(nameOf(index, blob), { create: true });
           const writable = await handle.createWritable();
-          await writable.write(photos[index].blob);
+          await writable.write(blob);
           await writable.close();
         }
 
+        hideProgress();
         showToast(`Скачано фотографий: ${photos.length}.`);
         return;
       } catch (error) {
-        if (error?.name === "AbortError") return; // выбор папки отменён пользователем
+        hideProgress();
+        if (error?.name === "AbortError") return;
       }
     }
 
     // Мобильные устройства, Safari, Firefox: скачиваем единым ZIP-архивом
     if (typeof window.JSZip === "function") {
-      showProgress("Создание ZIP-архива…");
+      showProgress(`Подготовка архива (0/${photos.length})…`);
       try {
         const zip = new window.JSZip();
         for (let index = 0; index < photos.length; index += 1) {
-          zip.file(nameOf(index), photos[index].blob);
+          showProgress(`Загрузка в ZIP (${index + 1}/${photos.length})…`);
+          const blob = await fetchPhotoBlob(photos[index]);
+          if (blob) {
+            zip.file(nameOf(index, blob), blob);
+          }
         }
+        showProgress("Сжатие ZIP-архива…");
         const zipBlob = await zip.generateAsync({ type: "blob" });
         downloadBlob(zipBlob, `${base}.zip`);
         showToast(`Архив «${base}.zip» скачан.`, "success");
         return;
       } catch (error) {
         console.warn("Ошибка генерации ZIP-архива:", error);
+        showToast("Ошибка при сборке ZIP архива", "error");
       } finally {
         hideProgress();
       }
     }
 
     // Запасной путь для браузеров без JSZip
-    photos.forEach((photo, index) => {
-      setTimeout(() => downloadBlob(photo.blob, nameOf(index)), index * 400);
-    });
+    for (let index = 0; index < photos.length; index += 1) {
+      const blob = await fetchPhotoBlob(photos[index]);
+      if (blob) {
+        setTimeout(() => downloadBlob(blob, nameOf(index, blob)), index * 400);
+      }
+    }
 
     showToast(`Скачиваю фотографий: ${photos.length}…`);
   }
@@ -2704,30 +2778,44 @@
     openDialog(dialog);
   }
 
-  function renderLightboxPhoto() {
+  async function renderLightboxPhoto() {
     const photo = state.lightboxPhotos[state.lightboxIndex];
     if (!photo) return;
 
     const image = $("#lightboxImage");
     const counter = $("#lightboxCounter");
 
-    if (image) {
-      image.src = photoURL(photo);
-      image.alt = photo.name || "Фотография сета";
-    }
-
     if (counter) {
       counter.textContent =
         `${state.lightboxIndex + 1} / ${state.lightboxPhotos.length}`;
     }
 
-    // Подгружаем соседние кадры, чтобы листание было мгновенным.
+    if (image) {
+      image.alt = photo.name || "Фотография сета";
+
+      // Мгновенно показываем превью, пока оригинал подтягивается
+      const previewUrl = photoURL(photo, "preview");
+      if (previewUrl && !photo.blob) {
+        image.src = previewUrl;
+      }
+
+      // Подгружаем оригинал (из локального blob либо потоково из Google Drive)
+      const currentId = photo.id;
+      const fullUrl = await loadFullPhotoURL(photo);
+      if (state.lightboxPhotos[state.lightboxIndex]?.id === currentId && fullUrl) {
+        image.src = fullUrl;
+      }
+    }
+
+    // Фоновая предзагрузка соседних оригиналов
     const count = state.lightboxPhotos.length;
     if (count > 1) {
       for (const shift of [-1, 1]) {
         const neighbour =
           state.lightboxPhotos[(state.lightboxIndex + shift + count) % count];
-        if (neighbour) new Image().src = photoURL(neighbour);
+        if (neighbour) {
+          loadFullPhotoURL(neighbour).catch(() => {});
+        }
       }
     }
   }
@@ -3665,9 +3753,16 @@
         // Восстанавливаем картинку по цепочке: локальный blob →
         // сохранённый dataURL → скачивание с Google Drive.
         let blob = local?.blob instanceof Blob ? local.blob : null;
-        const previewBlob = local?.preview instanceof Blob
+        let previewBlob = local?.preview instanceof Blob
           ? local.preview
           : null;
+
+        // Если локально нет превью, но в облачном манифесте сохранена DataURL-копия превью — восстанавливаем её!
+        if (!previewBlob && remote?.previewDataURL) {
+          try {
+            previewBlob = dataURLToBlob(remote.previewDataURL);
+          } catch {}
+        }
 
         if (!blob && typeof local?.dataURL === "string" && local.dataURL) {
           try {
@@ -3688,7 +3783,10 @@
           local?.providerTargetId ??
           null;
 
-        if (!blob && driveFileId) {
+        // В Cloud-First режиме: если фото уже в облаке, не скачиваем его оригинал в память устройства!
+        const downloadOriginals = CONFIG.cloudFirst?.downloadOriginalsOnSync ?? false;
+
+        if (!blob && driveFileId && downloadOriginals) {
           try {
             blob = await drive.downloadFile(driveFileId, providerTargetId);
           } catch (error) {
@@ -3736,11 +3834,14 @@
           }
         }
 
-        // Локальную запись сохраняем всегда — даже если blob не удалось
-        // получить, чтобы не потерять данные каталога.
+        // В Cloud-First режиме: если фото загружено в Google Drive,
+        // освобождаем тяжелый локальный оригинал из памяти устройства!
+        const purgeOriginals = CONFIG.cloudFirst?.purgeOriginalsAfterUpload ?? true;
+        const keepLocalBlob = driveFileId && purgeOriginals ? null : blob;
+
         const record = { ...meta };
 
-        if (blob) record.blob = blob;
+        if (keepLocalBlob) record.blob = keepLocalBlob;
         if (previewBlob) record.preview = previewBlob;
         if (driveFileId) record.driveFileId = driveFileId;
         // provider: сохраняем активный провайдер фото.
@@ -3752,6 +3853,11 @@
         const manifestMeta = { ...meta, provider: drive.id || meta.provider };
         if (driveFileId) manifestMeta.driveFileId = driveFileId;
         if (providerTargetId != null) manifestMeta.providerTargetId = providerTargetId;
+        if (previewBlob && !manifestMeta.previewDataURL) {
+          try {
+            manifestMeta.previewDataURL = await blobToDataURL(previewBlob);
+          } catch {}
+        }
         manifestPhotos.push(manifestMeta);
       }
 
@@ -3877,6 +3983,31 @@
         updateDriveUI();
         if (ok) syncNow({ silent: true });
       });
+    }
+  }
+
+  // Освободить память устройства: удалить локальные копии оригиналов, которые уже есть на Google Диске
+  async function purgeLocalOriginals() {
+    let freedBytes = 0;
+    let purgedCount = 0;
+
+    for (const photo of state.photos) {
+      if (photo.driveFileId && (photo.blob instanceof Blob)) {
+        freedBytes += photo.blob.size || 0;
+        delete photo.blob;
+        await db.put(CONFIG.stores.photos, photo);
+        purgedCount += 1;
+      }
+    }
+
+    cleanupObjectURLs();
+    renderAll();
+
+    const freedMb = (freedBytes / (1024 * 1024)).toFixed(1);
+    if (purgedCount > 0) {
+      showToast(`Освобождено ${freedMb} МБ (${purgedCount} фото сохранены в Google Drive).`, "success");
+    } else {
+      showToast("Все загруженные оригиналы уже находятся в Google Drive, память чиста.");
     }
   }
 
@@ -4173,6 +4304,9 @@
     // Перетаскивание файлов в панели фотографий.
     bindDropZone(document.querySelector("#setDialog .upload-panel"), addSelectedPhotos);
     bindDropZone($("#massUploadDrop"), addMassPhotos);
+
+    // Очистка памяти устройства от оригиналов (они хранятся в Google Drive)
+    $("#purgeStorageBtn")?.addEventListener("click", purgeLocalOriginals);
 
     // Резервные копии.
     $("#backupBtn")?.addEventListener("click", exportBackup);

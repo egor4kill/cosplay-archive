@@ -68,5 +68,14 @@ window.COSPLAY_CONFIG = {
     reserveFreeBytes: 250 * 1024 * 1024, // 250 МБ резерва на каждом аккаунте (200-300 МБ)
     strategy: "fill",                    // fill | roundrobin
     quotaCacheMs: 60000                  // кэш квоты, мс
+  },
+
+  // Режим чисто облачного хранения (Cloud-First):
+  // Фотографии хранятся в Google Drive и НЕ расходуют память телефона/ПК.
+  cloudFirst: {
+    enabled: true,
+    purgeOriginalsAfterUpload: true, // Освобождать локальный оригинал после заливки в облако
+    downloadOriginalsOnSync: false,  // Не скачивать тяжелые оригиналы в память устройства при синхронизации
+    defaultEmail: "egorgubarenko8@gmail.com" // Основная почта для хранилища
   }
 };

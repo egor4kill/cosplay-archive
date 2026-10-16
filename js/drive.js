@@ -135,8 +135,9 @@
           resolve(access);
         };
         const reqOpts = Object.assign({}, opts);
-        if (entry && entry.email && !reqOpts.hint) {
-          reqOpts.hint = entry.email;
+        const preferredEmail = (entry && entry.email) || (window.COSPLAY_CONFIG?.cloudFirst?.defaultEmail) || "";
+        if (preferredEmail && !reqOpts.hint) {
+          reqOpts.hint = preferredEmail;
         }
         c.requestAccessToken(reqOpts);
       }).catch(reject);
@@ -145,8 +146,12 @@
 
   async function connect(tid, force) {
     loadAll();
+    const defaultEmail = window.COSPLAY_CONFIG?.cloudFirst?.defaultEmail || "egorgubarenko8@gmail.com";
     let e = tid ? getTargetById(tid) : (force ? null : getActiveTarget());
-    if (!e) e = { id: genId(), email: "" };
+    if (!e && !force && defaultEmail) {
+      e = getTargetById(defaultEmail);
+    }
+    if (!e) e = { id: genId(), email: force ? "" : defaultEmail };
     if (!force && e.access && Date.now() < (e.expiresAt || 0)) { activeId = e.id; saveAll(); return e.access; }
     const access = await requestToken({ prompt: "select_account" }, e);
     try {
