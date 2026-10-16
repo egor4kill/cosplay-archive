@@ -2358,6 +2358,94 @@
 
   /* -------------------- Просмотр сета -------------------- */
 
+  /* -------------------- Скачивание фотографий -------------------- */
+
+  function photoExtension(blob) {
+    const type = (blob && blob.type) || "";
+    if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
+    if (type.includes("png")) return "png";
+    if (type.includes("gif")) return "gif";
+    if (type.includes("avif")) return "avif";
+    return "webp";
+  }
+
+  function downloadBaseName(set) {
+    const model = set ? getModel(set.modelId) : null;
+    const parts = [
+      slugify(model?.name || ""),
+      slugify(set?.title || set?.character || "")
+    ].filter(Boolean);
+
+    return parts.join("-") || "cosplay";
+  }
+
+  function photoDownloadName(photo, base, index, { keepOriginal = true } = {}) {
+    const extension = photoExtension(photo?.blob);
+
+    if (keepOriginal) {
+      const raw = String(photo?.name || "").replace(/\.[^.]+$/, "").trim();
+      const safe = raw.replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 80);
+      if (safe) return `${safe}.${extension}`;
+    }
+
+    const number = String(index + 1).padStart(2, "0");
+    return `${base}-${number}.${extension}`;
+  }
+
+  function downloadCurrentPhoto() {
+    const photo = state.lightboxPhotos[state.lightboxIndex];
+    if (!photo) return;
+
+    const base = downloadBaseName(getSet(state.viewedSetId));
+    downloadBlob(
+      photo.blob,
+      photoDownloadName(photo, base, state.lightboxIndex)
+    );
+    showToast("Фото скачано.");
+  }
+
+  async function downloadSetPhotos(set) {
+    if (!set) return;
+
+    const photos = getSetPhotos(set);
+
+    if (!photos.length) {
+      showToast("В этом сете нет фотографий.");
+      return;
+    }
+
+    const base = downloadBaseName(set);
+    const nameOf = index =>
+      photoDownloadName(photos[index], base, index, { keepOriginal: false });
+
+    // Chromium: пишем сразу в выбранную папку, без «пачки» отдельных загрузок.
+    if (typeof window.showDirectoryPicker === "function") {
+      try {
+        const directory = await window.showDirectoryPicker({ mode: "readwrite" });
+
+        for (let index = 0; index < photos.length; index += 1) {
+          const handle = await directory.getFileHandle(nameOf(index), { create: true });
+          const writable = await handle.createWritable();
+          await writable.write(photos[index].blob);
+          await writable.close();
+        }
+
+        showToast(`Скачано фотографий: ${photos.length}.`);
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return; // выбор папки отменён
+        // Иначе откатываемся к обычным загрузкам ниже.
+      }
+    }
+
+    // Запасной путь для браузеров без File System Access API.
+    photos.forEach((photo, index) => {
+      setTimeout(() => downloadBlob(photo.blob, nameOf(index)), index * 400);
+    });
+
+    showToast(`Скачиваю фотографий: ${photos.length}…`);
+  }
+
   function renderSetDetail() {
     const root = $("#setDetailBody");
     if (!root) return;
@@ -2439,6 +2527,12 @@
             data-action="upload-photos" data-id="${escapeHTML(set.id)}">
             Загрузить фото
           </button>
+          ${photos.length
+            ? `<button class="button button-quiet" type="button"
+                 data-action="download-set" data-id="${escapeHTML(set.id)}">
+                 Скачать фото
+               </button>`
+            : ""}
           <button class="button button-quiet" type="button"
             data-action="delete-set" data-id="${escapeHTML(set.id)}">
             Удалить
@@ -2538,6 +2632,8 @@
           ? `<button type="button" data-action="fullscreen-toggle"
                aria-label="На весь экран" title="На весь экран (F)">⛶</button>`
           : ""}
+        <button type="button" data-action="download-photo"
+          aria-label="Скачать фото" title="Скачать (D)">↓</button>
       </div>
     `;
 
@@ -3575,6 +3671,14 @@
       case "fullscreen-toggle":
         toggleFullscreen();
         break;
+
+      case "download-photo":
+        downloadCurrentPhoto();
+        break;
+
+      case "download-set":
+        downloadSetPhotos(getSet(id));
+        break;
     }
   }
 
@@ -3864,6 +3968,8 @@
           zoomBy(1 / 1.5);
         } else if (event.key === "0") {
           zoomAt(1);
+        } else if (event.code === "KeyD") {
+          downloadCurrentPhoto();
         } else if (event.code === "KeyF" && canFullscreen()) {
           toggleFullscreen();
         }
