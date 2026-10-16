@@ -248,6 +248,21 @@
       await transactionDone(tx);
     }
 
+    async clear(name) {
+      const tx = this.db.transaction(name, "readwrite");
+      tx.objectStore(name).clear();
+      await transactionDone(tx);
+    }
+
+    async clearAll() {
+      const names = Object.values(CONFIG.stores);
+      const tx = this.db.transaction(names, "readwrite");
+      for (const name of names) {
+        tx.objectStore(name).clear();
+      }
+      await transactionDone(tx);
+    }
+
     async replaceAll(recordsByStore) {
       const names = Object.keys(recordsByStore);
       const tx = this.db.transaction(names, "readwrite");
@@ -653,8 +668,16 @@
     return photoURL(photo, "preview");
   }
 
+  function isUserAuthenticated() {
+    refreshActiveProvider();
+    if (!drive || !drive.isConfigured()) return false;
+    if (typeof drive.hasToken === "function" && drive.hasToken()) return true;
+    if (typeof drive.isConnected === "function" && drive.isConnected()) return true;
+    return false;
+  }
+
   function photoURL(photo, variant = "full") {
-    if (!photo) return "";
+    if (!photo || !isUserAuthenticated()) return "";
 
     const previewBlob = variant === "preview" && photo.preview instanceof Blob
       ? photo.preview
@@ -1328,6 +1351,20 @@
   }
 
   function updateNavigation() {
+    const auth = isUserAuthenticated();
+    const gate = $("#authGate");
+    if (gate) {
+      gate.classList.toggle("hidden", auth);
+    }
+
+    // Скрываем навигацию и кнопки добавления, пока пользователь не вошёл в аккаунт
+    const addBtn = $("#addMainBtn");
+    const randBtn = $("#randomSetBtn");
+    const mainNav = $(".main-nav");
+    if (addBtn) addBtn.style.display = auth ? "" : "none";
+    if (randBtn) randBtn.style.display = auth ? "" : "none";
+    if (mainNav) mainNav.style.display = auth ? "" : "none";
+
     $$("[data-page]").forEach(button => {
       const active = button.dataset.page === state.page
         || (
@@ -1346,7 +1383,9 @@
 
     $$(".page").forEach(page => page.classList.add("hidden"));
 
-    $(`#page-${state.page}`)?.classList.remove("hidden");
+    if (auth) {
+      $(`#page-${state.page}`)?.classList.remove("hidden");
+    }
   }
 
   /* -------------------- Маршруты (адреса страниц) --------------------
@@ -3623,23 +3662,40 @@
       quotaCache.clear();
       state.drive.error = "";
       updateDriveUI();
+      await refreshData();
+      renderAll();
       showToast(`${label} подключён.`, "success");
       await syncNow({ silent: true });
     } catch (error) {
       console.error(error);
       state.drive.error = error.message || "ошибка авторизации";
       updateDriveUI();
+      renderAll();
       showToast(`Не удалось подключить ${label}: ${error.message}`, "error");
     }
   }
 
-  function driveSignOut() {
+  async function driveSignOut() {
     drive?.signOut();
     quotaCache.clear();
     state.drive.lastSyncAt = null;
     state.drive.error = "";
+
+    // При выходе из аккаунта очищаем локальную базу и память, чтобы фото не оставались на устройстве
+    try {
+      await db.clearAll();
+    } catch (e) {
+      console.warn("Ошибка очистки базы данных:", e);
+    }
+
+    state.models = [];
+    state.sets = [];
+    state.photos = [];
+    cleanupObjectURLs();
+
     updateDriveUI();
-    showToast(`${drive?.label || "Облако"} отключён.`);
+    renderAll();
+    showToast(`${drive?.label || "Облако"} отключён. Фотографии скрыты.`);
   }
 
   async function syncNow(options = {}) {
@@ -3979,9 +4035,20 @@
     updateDriveUI();
 
     if (drive.isConfigured()) {
-      drive.trySilentConnect().then(ok => {
+      drive.trySilentConnect().then(async ok => {
         updateDriveUI();
-        if (ok) syncNow({ silent: true });
+        if (ok) {
+          await refreshData();
+          renderAll();
+          syncNow({ silent: true });
+        } else {
+          if (!isUserAuthenticated()) {
+            state.models = [];
+            state.sets = [];
+            state.photos = [];
+          }
+          renderAll();
+        }
       });
     }
   }
@@ -4315,7 +4382,8 @@
       importBackup(event.target.files?.[0]);
     });
 
-    // Синхронизация с облаком.
+    // Синхронизация с облаком и экран блокировки.
+    $("#gateLoginBtn")?.addEventListener("click", () => driveConnect(false));
     $("#driveConnectBtn")?.addEventListener("click", () => driveConnect(false));
     $("#driveAddAccountBtn")?.addEventListener("click", () => driveConnect(true));
     $("#driveSyncBtn")?.addEventListener("click", () => syncNow());
@@ -4329,7 +4397,12 @@
         drive?.signOut?.(tid === "null" ? null : tid);
         quotaCache.clear();
         state.drive.lastSyncAt = null;
-        updateDriveUI();
+        if (!isUserAuthenticated()) {
+          driveSignOut();
+        } else {
+          updateDriveUI();
+          renderAll();
+        }
         return;
       }
 
@@ -4558,10 +4631,17 @@
 
       window.addEventListener("hashchange", () => applyRoute());
 
+      initDrive();
+
+      // Если пользователь не в аккаунте, фото и каталог не отображаются
+      if (!isUserAuthenticated()) {
+        state.models = [];
+        state.sets = [];
+        state.photos = [];
+      }
+
       renderAll();
       applyRoute(true);
-
-      initDrive();
 
       // Защита от случайной очистки IndexedDB браузером (iOS Safari, Android Chrome)
       if (navigator.storage && typeof navigator.storage.persist === "function") {

@@ -30,14 +30,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=14">
+  <link rel="stylesheet" href="css/style.css?v=16">
 
-  <script src="js/config.js?v=14" defer></script>
-  <script src="js/providers/registry.js?v=14" defer></script>
-  <script src="js/drive.js?v=14" defer></script>
-  <script src="js/providers/dropbox.js?v=14" defer></script>
-  <script src="js/vendor/jszip.min.js?v=14" defer></script>
-  <script src="js/app.js?v=14" defer></script>
+  <script src="js/config.js?v=16" defer></script>
+  <script src="js/providers/registry.js?v=16" defer></script>
+  <script src="js/drive.js?v=16" defer></script>
+  <script src="js/providers/dropbox.js?v=16" defer></script>
+  <script src="js/vendor/jszip.min.js?v=16" defer></script>
+  <script src="js/app.js?v=16" defer></script>
 </head>
 
 <body>
@@ -88,6 +88,23 @@
   </header>
 
   <main class="main-content">
+
+    <!-- Экран блокировки (если не выполнен вход в аккаунт) -->
+    <section class="auth-gate hidden" id="authGate">
+      <div class="empty-state auth-gate-card">
+        <div class="empty-icon" aria-hidden="true">🔒</div>
+        <h2>Архив заблокирован</h2>
+        <p>
+          Фотографии скрыты. Подключите Google Диск, чтобы получить доступ к вашим фотосетам и моделям.
+        </p>
+        <button class="button button-primary auth-gate-login" id="gateLoginBtn" type="button">
+          Войти через Google
+        </button>
+        <small class="auth-gate-sub">
+          При входе можно выбрать любой Google аккаунт.
+        </small>
+      </div>
+    </section>
 
     <!-- Страница моделей -->
     <section class="page" id="page-models">

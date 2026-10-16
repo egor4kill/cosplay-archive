@@ -75,7 +75,6 @@ window.COSPLAY_CONFIG = {
   cloudFirst: {
     enabled: true,
     purgeOriginalsAfterUpload: true, // Освобождать локальный оригинал после заливки в облако
-    downloadOriginalsOnSync: false,  // Не скачивать тяжелые оригиналы в память устройства при синхронизации
-    defaultEmail: "egorgubarenko8@gmail.com" // Основная почта для хранилища
+    downloadOriginalsOnSync: false   // Не скачивать тяжелые оригиналы в память устройства при синхронизации
   }
 };

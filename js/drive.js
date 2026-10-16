@@ -81,6 +81,11 @@
 
   function isConfigured() { return Boolean(config.clientId); }
 
+  function isConnected() {
+    loadAll();
+    return tokens.length > 0;
+  }
+
   function hasToken(tid) {
     loadAll();
     if (tid) {
@@ -135,9 +140,12 @@
           resolve(access);
         };
         const reqOpts = Object.assign({}, opts);
-        const preferredEmail = (entry && entry.email) || (window.COSPLAY_CONFIG?.cloudFirst?.defaultEmail) || "";
-        if (preferredEmail && !reqOpts.hint) {
-          reqOpts.hint = preferredEmail;
+        // Если запрашивается выбор аккаунта — НЕ передаём hint, чтобы Google показал список всех аккаунтов
+        if (reqOpts.prompt === "select_account" || reqOpts.prompt === "consent") {
+          delete reqOpts.hint;
+          delete reqOpts.login_hint;
+        } else if (!reqOpts.hint && entry && entry.email) {
+          reqOpts.hint = entry.email;
         }
         c.requestAccessToken(reqOpts);
       }).catch(reject);
@@ -146,12 +154,8 @@
 
   async function connect(tid, force) {
     loadAll();
-    const defaultEmail = window.COSPLAY_CONFIG?.cloudFirst?.defaultEmail || "egorgubarenko8@gmail.com";
     let e = tid ? getTargetById(tid) : (force ? null : getActiveTarget());
-    if (!e && !force && defaultEmail) {
-      e = getTargetById(defaultEmail);
-    }
-    if (!e) e = { id: genId(), email: force ? "" : defaultEmail };
+    if (!e) e = { id: genId(), email: "" };
     if (!force && e.access && Date.now() < (e.expiresAt || 0)) { activeId = e.id; saveAll(); return e.access; }
     const access = await requestToken({ prompt: "select_account" }, e);
     try {
@@ -182,6 +186,7 @@
   }
 
   async function trySilentConnect(tid) {
+    loadAll();
     const t = tid ? getTargetById(tid) : getActiveTarget();
     if (!t) return false;
     if (t.access && Date.now() < (t.expiresAt || 0)) return true;
@@ -190,8 +195,15 @@
 
   function signOut(tid) {
     loadAll();
-    if (tid) { tokens = tokens.filter(t => t.id !== tid); if (activeId === tid) activeId = tokens[0] && tokens[0].id || null; saveAll(); return; }
-    tokens = []; activeId = null; saveAll();
+    if (tid) {
+      tokens = tokens.filter(t => t.id !== tid && t.email !== tid);
+      if (activeId === tid) activeId = (tokens[0] && tokens[0].id) || null;
+      saveAll();
+      return;
+    }
+    tokens = [];
+    activeId = null;
+    saveAll();
   }
 
   async function ensureToken(tid) {
@@ -313,6 +325,7 @@
     configure,
     isConfigured,
     hasToken: (tid) => hasToken(tid),
+    isConnected: () => isConnected(),
     connect: (tid, force) => connect(tid, force),
     trySilentConnect: (tid) => trySilentConnect(tid),
     signOut: (tid) => signOut(tid),
