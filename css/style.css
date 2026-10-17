@@ -1321,12 +1321,87 @@ input[type="checkbox"] {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.photo-thumb[draggable="true"] {
+  cursor: grab;
+}
+
+.photo-thumb[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.photo-thumb.is-dragging {
+  opacity: 0.35;
+  transform: scale(0.92);
+}
+
+.photo-thumb.drag-target {
+  border: 2px dashed var(--accent, #b69aff) !important;
+  transform: scale(1.04);
+  box-shadow: 0 0 16px rgba(182, 154, 255, 0.6) !important;
 }
 
 .photo-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
+}
+
+.photo-thumb .thumb-order-badge {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(16, 14, 23, 0.88);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #c4b0ff;
+  font-size: 10.5px;
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.photo-thumb .thumb-select-btn {
+  position: absolute;
+  top: 5px;
+  left: 35px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  background: rgba(16, 14, 23, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 3;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.photo-thumb .thumb-select-btn:hover {
+  border-color: #b69aff;
+}
+
+.photo-thumb .thumb-select-btn.is-selected {
+  background: #e0446b;
+  border-color: #ff6088;
+  color: #fff;
+}
+
+.photo-thumb.is-selected {
+  border-color: #e0446b !important;
+  box-shadow: 0 0 10px rgba(224, 68, 107, 0.45) !important;
 }
 
 .photo-thumb .thumb-remove-btn {
@@ -1350,6 +1425,51 @@ input[type="checkbox"] {
 .photo-thumb .thumb-remove-btn:hover {
   background: #a83c58;
   border-color: #ff6080;
+}
+
+.photo-thumb .thumb-move-controls {
+  position: absolute;
+  bottom: 34px;
+  left: 5px;
+  right: 5px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.photo-thumb:hover .thumb-move-controls,
+.photo-thumb:focus-within .thumb-move-controls {
+  opacity: 1;
+}
+
+.photo-thumb .thumb-move-btn {
+  pointer-events: auto;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  background: rgba(20, 16, 29, 0.9);
+  color: #e0d3ff;
+  font-size: 14px;
+  font-weight: bold;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.photo-thumb .thumb-move-btn:hover:not(:disabled) {
+  background: var(--accent, #b69aff);
+  color: #120e1c;
+}
+
+.photo-thumb .thumb-move-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 .photo-thumb .thumb-cover-btn {
@@ -1393,6 +1513,107 @@ input[type="checkbox"] {
 .photo-thumb.is-cover {
   border: 2px solid var(--accent);
   box-shadow: 0 0 12px rgba(182, 154, 255, 0.35);
+}
+
+/* -------------------- Панель управления фотографиями сета -------------------- */
+
+.photo-manager-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.photo-manager-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted, #9484b5);
+}
+
+.photo-counter-badge {
+  font-weight: 600;
+  color: var(--text, #f0ecf9);
+}
+
+.selection-status {
+  color: #ff859d;
+  font-weight: 600;
+}
+
+.selection-status.hidden,
+.button.hidden {
+  display: none !important;
+}
+
+.photo-manager-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.button-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.button.danger {
+  background: rgba(224, 68, 107, 0.22);
+  border-color: rgba(224, 68, 107, 0.55);
+  color: #ff99b0;
+}
+
+.button.danger:hover {
+  background: #e0446b;
+  border-color: #ff6088;
+  color: #fff;
+}
+
+/* -------------------- Кликабельные теги -------------------- */
+
+.tag-chip-btn {
+  background: rgba(182, 154, 255, 0.12);
+  border: 1px solid rgba(182, 154, 255, 0.28);
+  color: #d8c8ff;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.tag-chip-btn:hover {
+  background: var(--accent, #b69aff);
+  border-color: var(--accent, #b69aff);
+  color: #120e1c;
+  transform: translateY(-1px);
+}
+
+.tag-chip-btn.active {
+  background: var(--accent, #b69aff);
+  border-color: var(--accent, #b69aff);
+  color: #120e1c;
+  font-weight: 700;
+}
+
+.tag-clear-chip {
+  background: rgba(224, 68, 107, 0.2) !important;
+  border-color: rgba(224, 68, 107, 0.5) !important;
+  color: #ff99b0 !important;
+  font-weight: 600;
+}
+
+.tag-clear-chip:hover {
+  background: #e0446b !important;
+  color: #fff !important;
 }
 
 /* -------------------- Описание сета -------------------- */

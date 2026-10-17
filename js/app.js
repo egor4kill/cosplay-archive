@@ -381,6 +381,8 @@
     draftRemovedPhotoIds: new Set(),
     draftCoverPhotoId: null,
     draftModelCoverPhotoId: null,
+    draftPhotoList: [],
+    draftSelectedPhotoIds: new Set(),
     privacyActive: false,
     massUploadPhotos: [],
     massUploadObjectURLs: new Map(),
@@ -1160,9 +1162,14 @@
   function renderTags(tags, className = "mini-tag") {
     if (!tags?.length) return "";
 
-    return tags.map(tag =>
-      `<span class="${className}">#${escapeHTML(tag)}</span>`
-    ).join("");
+    return tags.map(tag => {
+      const cleanTag = String(tag || "").trim().replace(/^#+/, "");
+      if (!cleanTag) return "";
+      const isActive = state.activeTag && state.activeTag.toLowerCase() === cleanTag.toLowerCase();
+      return `<button type="button" class="${className} tag-chip-btn ${isActive ? "active" : ""}"
+        data-action="filter-tag" data-tag="${escapeHTML(cleanTag)}"
+        title="Показать только сеты с тегом #${escapeHTML(cleanTag)}">#${escapeHTML(cleanTag)}</button>`;
+    }).join("");
   }
 
   function renderCardTags(tags, limit = 3) {
@@ -1175,7 +1182,7 @@
       <div class="card-tags">
         ${renderTags(visible)}
         ${remainder > 0
-          ? `<span class="mini-tag">+${remainder}</span>`
+          ? `<span class="mini-tag" title="${tags.slice(limit).map(t => '#' + t).join(' ')}">+${remainder}</span>`
           : ""}
       </div>
     `;
@@ -1441,13 +1448,8 @@
 
     for (const set of state.sets) {
       for (const tag of set.tags || []) {
-        tags.add(tag);
-      }
-    }
-
-    for (const model of state.models) {
-      for (const tag of model.tags || []) {
-        tags.add(tag);
+        const cleaned = String(tag || "").trim().replace(/^#+/, "").toLowerCase();
+        if (cleaned) tags.add(cleaned);
       }
     }
 
@@ -1461,13 +1463,27 @@
     if (!container) return;
 
     const tags = allSetTags();
+    const activeClean = state.activeTag ? state.activeTag.trim().replace(/^#+/, "").toLowerCase() : "";
 
-    container.innerHTML = tags.map(tag => `
-      <button class="tag-chip ${state.activeTag === tag ? "active" : ""}"
+    if (!tags.length) {
+      container.innerHTML = "";
+      return;
+    }
+
+    const clearBtn = state.activeTag ? `
+      <button class="tag-chip tag-clear-chip" type="button" data-action="clear-active-tag" title="Сбросить фильтр по тегу">
+        ✕ Сбросить (#${escapeHTML(state.activeTag)})
+      </button>
+    ` : "";
+
+    const chipsHtml = tags.map(tag => `
+      <button class="tag-chip ${activeClean === tag ? "active" : ""}"
         type="button" data-action="filter-tag" data-tag="${escapeHTML(tag)}">
         #${escapeHTML(tag)}
       </button>
     `).join("");
+
+    container.innerHTML = clearBtn + chipsHtml;
   }
 
   let updateModelTagSuggestions = null;
@@ -1561,27 +1577,33 @@
 
     let sets = state.sets.filter(set => {
       const model = getModel(set.modelId);
-      const tags = set.tags || [];
+      const setTags = (set.tags || []).map(t => String(t || "").trim().replace(/^#+/, "").toLowerCase());
 
       if (modelId && set.modelId !== modelId) return false;
       if (favoritesOnly && !set.favorite) return false;
 
-      if (
-        state.activeTag
-        && !tags.includes(state.activeTag)
-        && !(model?.tags || []).includes(state.activeTag)
-      ) {
-        return false;
+      // Тег выбран: фильтруем ТОЛЬКО сеты, у которых этот тег действительно указан
+      if (state.activeTag) {
+        const activeClean = state.activeTag.trim().replace(/^#+/, "").toLowerCase();
+        if (!setTags.includes(activeClean)) {
+          return false;
+        }
       }
 
       if (!query) return true;
+
+      // Если в поиск введён тег с решёткой (например #tifa): ищем СТРОГО по тегам сета
+      if (query.startsWith("#")) {
+        const tagQuery = query.replace(/^#+/, "").trim().toLowerCase();
+        return tagQuery ? setTags.some(t => t.includes(tagQuery)) : true;
+      }
 
       return [
         set.character,
         set.title,
         set.description,
         model?.name,
-        ...(tags)
+        ...setTags
       ].some(value => normalize(value).includes(query));
     });
 
@@ -2262,7 +2284,17 @@
 
     state.draftNewPhotos = [];
     state.draftRemovedPhotoIds = new Set();
+    state.draftSelectedPhotoIds = new Set();
     state.draftCoverPhotoId = set?.coverPhotoId || null;
+
+    if (set) {
+      const savedMap = new Map(state.photos.map(p => [p.id, p]));
+      state.draftPhotoList = (set.photoIds || [])
+        .map(id => savedMap.get(id))
+        .filter(Boolean);
+    } else {
+      state.draftPhotoList = [];
+    }
 
     $("#setId").value = set?.id || "";
     $("#setCharacter").value = set?.character || "";
@@ -2421,6 +2453,11 @@
     const files = await processFilesOrArchives(rawFiles, "set");
     if (!files.length) return;
 
+    // Сортировка файлов по естественному порядку имён: 1, 2, ..., 10
+    files.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+    );
+
     const max = CONFIG.maxPhotosPerImport || 200;
 
     if (files.length > max) {
@@ -2428,10 +2465,10 @@
       return;
     }
 
-    const existingCount = state.draftNewPhotos.length;
+    const existingCount = state.draftPhotoList.length;
 
     if (existingCount + files.length > max) {
-      showToast(`В одном действии можно обработать не более ${max} фотографий.`, "error");
+      showToast(`В одном сете может быть не более ${max} фотографий.`, "error");
       return;
     }
 
@@ -2463,6 +2500,7 @@
 
         const prepared = await prepareImage(file);
         state.draftNewPhotos.push(prepared);
+        state.draftPhotoList.push(prepared);
 
         const temporaryUrl = URL.createObjectURL(prepared.blob);
         state.objectURLs.set(prepared.id, temporaryUrl);
@@ -2531,18 +2569,96 @@
     }
   }
 
+  function updatePhotoManagerToolbar(photos) {
+    const badge = $("#photoCountBadge");
+    const selection = $("#selectionStatus");
+    const selectAllBtn = $("#selectAllPhotosBtn");
+    const deleteSelectedBtn = $("#deleteSelectedPhotosBtn");
+    const sortBtn = $("#sortByNameBtn");
+
+    if (badge) {
+      badge.textContent = `${photos.length} ${pluralize(photos.length, "фото", "фото", "фото")}`;
+    }
+
+    const selectedCount = state.draftSelectedPhotoIds.size;
+
+    if (selection) {
+      selection.textContent = `Выбрано: ${selectedCount}`;
+      selection.classList.toggle("hidden", selectedCount === 0);
+    }
+
+    if (deleteSelectedBtn) {
+      deleteSelectedBtn.textContent = `🗑 Удалить (${selectedCount})`;
+      deleteSelectedBtn.classList.toggle("hidden", selectedCount === 0);
+    }
+
+    if (selectAllBtn) {
+      selectAllBtn.textContent = (photos.length > 0 && selectedCount === photos.length)
+        ? "Снять всё"
+        : "☑ Выбрать все";
+      selectAllBtn.disabled = photos.length === 0;
+    }
+
+    if (sortBtn) {
+      sortBtn.disabled = photos.length < 2;
+    }
+  }
+
+  let draggedDraftPhotoId = null;
+
+  function bindDraftPhotoDragDrop(thumb, photoId) {
+    thumb.addEventListener("dragstart", event => {
+      draggedDraftPhotoId = photoId;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", photoId);
+      thumb.classList.add("is-dragging");
+    });
+
+    thumb.addEventListener("dragend", () => {
+      draggedDraftPhotoId = null;
+      thumb.classList.remove("is-dragging");
+      $$(".photo-thumb").forEach(t => t.classList.remove("drag-target"));
+    });
+
+    thumb.addEventListener("dragover", event => {
+      if (!draggedDraftPhotoId || draggedDraftPhotoId === photoId) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      thumb.classList.add("drag-target");
+    });
+
+    thumb.addEventListener("dragleave", () => {
+      thumb.classList.remove("drag-target");
+    });
+
+    thumb.addEventListener("drop", event => {
+      event.preventDefault();
+      thumb.classList.remove("drag-target");
+      if (!draggedDraftPhotoId || draggedDraftPhotoId === photoId) return;
+
+      const fromIndex = state.draftPhotoList.findIndex(p => p.id === draggedDraftPhotoId);
+      const toIndex = state.draftPhotoList.findIndex(p => p.id === photoId);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+      const [moved] = state.draftPhotoList.splice(fromIndex, 1);
+      state.draftPhotoList.splice(toIndex, 0, moved);
+      renderDraftPhotos();
+    });
+  }
+
   function renderDraftPhotos() {
     const container = $("#existingPhotos");
     if (!container) return;
 
-    const setId = $("#setId")?.value;
-    const existingSet = setId ? getSet(setId) : null;
-    const photos = getSetPhotos(existingSet);
+    const photos = state.draftPhotoList.filter(
+      p => !state.draftRemovedPhotoIds.has(p.id)
+    );
 
     updateSetCoverPreviewUI(photos);
+    updatePhotoManagerToolbar(photos);
 
     if (!photos.length) {
-      container.innerHTML = "";
+      container.innerHTML = '<p class="muted small" style="padding: 14px; text-align: center; grid-column: 1 / -1;">В сете пока нет фотографий. Выберите фото или перетащите архив выше.</p>';
       return;
     }
 
@@ -2553,12 +2669,33 @@
     container.innerHTML = photos.map((photo, index) => {
       const url = photoURL(photo, "preview");
       const isCover = photo.id === effectiveCoverId;
+      const isSelected = state.draftSelectedPhotoIds.has(photo.id);
 
       return `
-        <div class="photo-thumb ${isCover ? "is-cover" : ""}" data-photo-id="${escapeHTML(photo.id)}">
-          <img src="${url}" alt="Фото ${index + 1}" loading="lazy">
+        <div class="photo-thumb ${isCover ? "is-cover" : ""} ${isSelected ? "is-selected" : ""}"
+             draggable="true"
+             data-photo-id="${escapeHTML(photo.id)}"
+             data-index="${index}">
+          <img src="${url}" alt="Фото ${index + 1}" loading="lazy" draggable="false">
+
+          <span class="thumb-order-badge" title="Порядковый номер в сете">#${index + 1}</span>
+
+          <button type="button" class="thumb-select-btn ${isSelected ? "is-selected" : ""}"
+            data-action="toggle-select-draft-photo" data-id="${escapeHTML(photo.id)}"
+            title="${isSelected ? "Снять выделение" : "Выбрать для удаления"}">
+            ${isSelected ? "✓" : ""}
+          </button>
+
           <button type="button" class="thumb-remove-btn" data-action="remove-draft-photo"
-            data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото" title="Удалить фото">×</button>
+            data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото" title="Удалить это фото">×</button>
+
+          <div class="thumb-move-controls">
+            <button type="button" class="thumb-move-btn" data-action="move-draft-photo" data-dir="-1"
+              data-id="${escapeHTML(photo.id)}" title="Переместить левее" ${index === 0 ? "disabled" : ""}>‹</button>
+            <button type="button" class="thumb-move-btn" data-action="move-draft-photo" data-dir="1"
+              data-id="${escapeHTML(photo.id)}" title="Переместить правее" ${index === photos.length - 1 ? "disabled" : ""}>›</button>
+          </div>
+
           <button type="button" class="thumb-cover-btn ${isCover ? "is-active" : ""}"
             data-action="set-cover" data-id="${escapeHTML(photo.id)}"
             title="${isCover ? "Текущая обложка фотосета" : "Сделать обложкой фотосета"}">
@@ -2567,9 +2704,30 @@
         </div>
       `;
     }).join("");
+
+    container.querySelectorAll(".photo-thumb").forEach(thumb => {
+      const id = thumb.dataset.photoId;
+      if (id) bindDraftPhotoDragDrop(thumb, id);
+    });
+  }
+
+  function moveDraftPhoto(id, offset) {
+    const currentIndex = state.draftPhotoList.findIndex(p => p.id === id);
+    if (currentIndex === -1) return;
+    const newIndex = currentIndex + offset;
+    if (newIndex < 0 || newIndex >= state.draftPhotoList.length) return;
+    const [moved] = state.draftPhotoList.splice(currentIndex, 1);
+    state.draftPhotoList.splice(newIndex, 0, moved);
+    renderDraftPhotos();
   }
 
   function removeDraftPhoto(id) {
+    const listIndex = state.draftPhotoList.findIndex(p => p.id === id);
+    if (listIndex !== -1) {
+      state.draftPhotoList.splice(listIndex, 1);
+    }
+    state.draftSelectedPhotoIds.delete(id);
+
     const newPhotoIndex = state.draftNewPhotos.findIndex(photo => photo.id === id);
 
     if (newPhotoIndex !== -1) {
@@ -2588,6 +2746,36 @@
       state.draftCoverPhotoId = null;
     }
 
+    renderDraftPhotos();
+  }
+
+  function removeSelectedDraftPhotos() {
+    if (!state.draftSelectedPhotoIds.size) return;
+    const count = state.draftSelectedPhotoIds.size;
+    const ids = [...state.draftSelectedPhotoIds];
+    ids.forEach(id => removeDraftPhoto(id));
+    state.draftSelectedPhotoIds.clear();
+    renderDraftPhotos();
+    showToast(`Удалено фотографий: ${count}`, "info");
+  }
+
+  function sortDraftPhotosByName() {
+    state.draftPhotoList.sort((a, b) => {
+      const nameA = a.name || a.id || "";
+      const nameB = b.name || b.id || "";
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
+    });
+    renderDraftPhotos();
+    showToast("Фотографии отсортированы по имени", "success");
+  }
+
+  function toggleSelectAllDraftPhotos() {
+    const photos = state.draftPhotoList.filter(p => !state.draftRemovedPhotoIds.has(p.id));
+    if (state.draftSelectedPhotoIds.size === photos.length) {
+      state.draftSelectedPhotoIds.clear();
+    } else {
+      photos.forEach(p => state.draftSelectedPhotoIds.add(p.id));
+    }
     renderDraftPhotos();
   }
 
@@ -2941,20 +3129,20 @@
     }
 
     const previous = getSet(id);
-    const oldPhotoIds = new Set(previous?.photoIds || []);
 
-    const newPhotos = state.draftNewPhotos.map(photo => ({
-      ...photo,
-      setId: id,
-      order: oldPhotoIds.size + state.draftNewPhotos.indexOf(photo)
-    }));
+    // Сохраняем фотографии в порядке, установленном пользователем в draftPhotoList
+    const orderedPhotos = state.draftPhotoList.filter(
+      photo => !state.draftRemovedPhotoIds.has(photo.id)
+    );
+    const keptPhotoIds = orderedPhotos.map(photo => photo.id);
 
-    const keptPhotoIds = [
-      ...(previous?.photoIds || []).filter(
-        photoId => !state.draftRemovedPhotoIds.has(photoId)
-      ),
-      ...newPhotos.map(photo => photo.id)
-    ];
+    const newPhotos = state.draftNewPhotos
+      .filter(photo => !state.draftRemovedPhotoIds.has(photo.id))
+      .map(photo => ({
+        ...photo,
+        setId: id,
+        order: keptPhotoIds.indexOf(photo.id)
+      }));
 
     const coverId = state.draftCoverPhotoId
       && keptPhotoIds.includes(state.draftCoverPhotoId)
@@ -4819,8 +5007,25 @@
         removeMassPhoto(id);
         break;
 
-      case "filter-tag":
-        state.activeTag = state.activeTag === tag ? "" : tag;
+      case "filter-tag": {
+        const clickedTag = (element.dataset.tag || "").trim().replace(/^#+/, "");
+        if (state.activeTag && state.activeTag.toLowerCase() === clickedTag.toLowerCase()) {
+          state.activeTag = "";
+        } else {
+          state.activeTag = clickedTag;
+        }
+
+        if (state.page !== "sets") {
+          navigate("sets");
+        } else {
+          renderTagChips();
+          renderSets();
+        }
+        break;
+      }
+
+      case "clear-active-tag":
+        state.activeTag = "";
         renderTagChips();
         renderSets();
         break;
@@ -4828,6 +5033,21 @@
       case "remove-draft-photo":
         removeDraftPhoto(id);
         break;
+
+      case "toggle-select-draft-photo":
+        if (state.draftSelectedPhotoIds.has(id)) {
+          state.draftSelectedPhotoIds.delete(id);
+        } else {
+          state.draftSelectedPhotoIds.add(id);
+        }
+        renderDraftPhotos();
+        break;
+
+      case "move-draft-photo": {
+        const dir = Number(element.dataset.dir || 0);
+        moveDraftPhoto(id, dir);
+        break;
+      }
 
       case "set-cover":
         state.draftCoverPhotoId = id;
@@ -5013,6 +5233,7 @@
         });
         const prepared = await prepareImage(file);
         state.draftNewPhotos.unshift(prepared);
+        state.draftPhotoList.unshift(prepared);
         const temporaryUrl = URL.createObjectURL(prepared.blob);
         state.objectURLs.set(prepared.id, temporaryUrl);
         state.draftCoverPhotoId = prepared.id;
@@ -5033,6 +5254,11 @@
       renderDraftPhotos();
       showToast("Обложка сброшена на 1-е фото", "info");
     });
+
+    // Управление фотографиями в редакторе: сортировка и массовые действия
+    $("#sortByNameBtn")?.addEventListener("click", sortDraftPhotosByName);
+    $("#selectAllPhotosBtn")?.addEventListener("click", toggleSelectAllDraftPhotos);
+    $("#deleteSelectedPhotosBtn")?.addEventListener("click", removeSelectedDraftPhotos);
 
     // Режим приватности (размытие контента)
     $("#privacyToggleBtn")?.addEventListener("click", togglePrivacy);
