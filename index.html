@@ -30,15 +30,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=29">
+  <link rel="stylesheet" href="css/style.css?v=30">
 
-  <script src="js/config.js?v=29" defer></script>
-  <script src="js/providers/registry.js?v=29" defer></script>
-  <script src="js/drive.js?v=29" defer></script>
-  <script src="js/providers/dropbox.js?v=29" defer></script>
-  <script src="js/vendor/jszip.min.js?v=29" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=29" defer></script>
-  <script src="js/app.js?v=29" defer></script>
+  <script src="js/config.js?v=30" defer></script>
+  <script src="js/providers/registry.js?v=30" defer></script>
+  <script src="js/drive.js?v=30" defer></script>
+  <script src="js/providers/dropbox.js?v=30" defer></script>
+  <script src="js/vendor/jszip.min.js?v=30" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=30" defer></script>
+  <script src="js/vendor/unrar.min.js?v=30" defer></script>
+  <script src="js/app.js?v=30" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -588,7 +589,7 @@
         <div>
           <h3>Фотографии</h3>
           <p class="muted">
-            Выбери изображения или перетащи архив (.zip) с паролем или без.
+            Выбери изображения или перетащи архив (.zip / .rar) с паролем или без.
           </p>
         </div>
 
@@ -597,7 +598,7 @@
           <input
             id="setPhotos"
             type="file"
-            accept="image/*,.zip,application/zip,application/x-zip-compressed"
+            accept="image/*,.zip,.rar,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar,application/x-rar"
             multiple
             hidden
           >
@@ -701,7 +702,7 @@
         <div>
           <h3>Фотографии</h3>
           <p class="muted">
-            Перетащи сюда фотографии или архив (.zip) с паролем или папками.
+            Перетащи сюда фотографии или архив (.zip / .rar) с паролем или папками.
           </p>
         </div>
 
@@ -710,7 +711,7 @@
           <input
             id="massUploadInput"
             type="file"
-            accept="image/*,.zip,application/zip,application/x-zip-compressed"
+            accept="image/*,.zip,.rar,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar,application/x-rar"
             multiple
             hidden
           >

@@ -785,30 +785,197 @@
     }
   }
 
+  /* -------------------- Извлечение RAR-архивов с поддержкой паролей -------------------- */
+
+  async function extractRarImages(file) {
+    if (!window.unrar || typeof window.unrar.createExtractorFromData !== "function") {
+      showToast("Модуль распаковки RAR ещё загружается…", "error");
+      return [];
+    }
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+
+      let password = "";
+      let extractor = null;
+      let headers = null;
+      let passAttempts = 0;
+
+      // Чтение оглавления архива (с поддержкой зашифрованных заголовков)
+      while (passAttempts < 3) {
+        try {
+          extractor = await window.unrar.createExtractorFromData({
+            data: arrayBuffer.slice(0),
+            password: password || undefined
+          });
+          const list = extractor.getFileList();
+          headers = [...list.fileHeaders];
+          break;
+        } catch (err) {
+          const isPassErr = err?.reason === "ERAR_MISSING_PASSWORD"
+            || err?.reason === "ERAR_BAD_PASSWORD"
+            || /password/i.test(err?.message || "");
+
+          if (isPassErr) {
+            password = await promptArchivePassword(file.name, passAttempts > 0);
+            if (password === null) {
+              return [];
+            }
+            passAttempts++;
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      if (!headers) {
+        showToast(`Не удалось прочитать RAR-архив «${file.name}».`, "error");
+        return [];
+      }
+
+      // Фильтруем файлы изображений, исключая папки и системный мусор
+      const imageHeaders = headers.filter(h => {
+        if (h.flags && h.flags.directory) return false;
+        const norm = (h.name || "").replace(/\\/g, "/").toLowerCase();
+        if (norm.includes("__macosx/") || norm.includes("thumbs.db") || norm.split("/").pop().startsWith(".")) return false;
+        return /\.(jpe?g|png|webp|gif|avif)$/i.test(norm);
+      });
+
+      if (!imageHeaders.length) {
+        showToast(`В архиве «${file.name}» не найдено поддерживаемых фотографий.`, "error");
+        return [];
+      }
+
+      // Проверяем шифрование содержимого файлов
+      const isEncrypted = imageHeaders.some(h => h.flags && h.flags.encrypted);
+      if (isEncrypted && !password) {
+        password = await promptArchivePassword(file.name, false);
+        if (password === null) {
+          return [];
+        }
+      }
+
+      showHUD({
+        title: "Распаковка RAR-архива",
+        subtitle: `Извлечение 0 из ${imageHeaders.length}…`,
+        current: 0,
+        total: imageHeaders.length,
+        icon: "📦"
+      });
+
+      const extractedFiles = [];
+      const imageNames = imageHeaders.map(h => h.name);
+
+      let extractAttempts = 0;
+      while (extractAttempts < 3) {
+        try {
+          extractedFiles.length = 0;
+
+          // Создаём отдельный чистый экземпляр для распаковки
+          const runExtractor = await window.unrar.createExtractorFromData({
+            data: arrayBuffer.slice(0),
+            password: password || undefined
+          });
+
+          const extracted = runExtractor.extract({
+            files: imageNames,
+            password: password || undefined
+          });
+
+          let count = 0;
+          for (const item of extracted.files) {
+            if (!item || !item.fileHeader || item.fileHeader.flags?.directory) continue;
+            const normPath = (item.fileHeader.name || "").replace(/\\/g, "/");
+            const baseName = normPath.split("/").pop() || `photo_${count + 1}.jpg`;
+            const ext = baseName.split(".").pop().toLowerCase();
+            const mime = ext === "png" ? "image/png"
+              : ext === "webp" ? "image/webp"
+              : ext === "gif" ? "image/gif"
+              : ext === "avif" ? "image/avif"
+              : "image/jpeg";
+
+            if (item.extraction && item.extraction.length > 0) {
+              const blob = new Blob([item.extraction], { type: mime });
+              const extractedFile = new File([blob], baseName, {
+                type: mime,
+                lastModified: Date.now()
+              });
+              extractedFiles.push(extractedFile);
+            }
+
+            count++;
+            updateHUD({
+              subtitle: `Извлечено ${count} из ${imageHeaders.length} (${baseName})`,
+              current: count,
+              total: imageHeaders.length
+            });
+          }
+
+          break;
+        } catch (err) {
+          const isPassErr = err?.reason === "ERAR_MISSING_PASSWORD"
+            || err?.reason === "ERAR_BAD_PASSWORD"
+            || /password/i.test(err?.message || "");
+
+          if (isPassErr) {
+            password = await promptArchivePassword(file.name, true);
+            if (password === null) {
+              hideHUD(0);
+              return extractedFiles;
+            }
+            extractAttempts++;
+          } else {
+            console.warn("Ошибка извлечения файлов из RAR:", err);
+            throw err;
+          }
+        }
+      }
+
+      hideHUD(600);
+      showToast(`Из RAR-архива извлечено фотографий: ${extractedFiles.length}`, "success");
+      return extractedFiles;
+    } catch (error) {
+      console.error("Ошибка при распаковке RAR-архива:", error);
+      showToast(`Не удалось прочитать RAR-архив «${file.name}»: ${error.message || error}`, "error");
+      hideHUD(0);
+      return [];
+    }
+  }
+
   async function processFilesOrArchives(fileList, targetDialog = "set") {
     const rawFiles = Array.from(fileList || []);
     if (!rawFiles.length) return [];
 
     const resultFiles = [];
-    let detectedZipName = "";
+    let detectedArchiveName = "";
 
     for (const file of rawFiles) {
       const isZip = file.name.toLowerCase().endsWith(".zip")
         || file.type === "application/zip"
         || file.type === "application/x-zip-compressed";
       const isRar = file.name.toLowerCase().endsWith(".rar")
-        || file.name.toLowerCase().endsWith(".7z");
+        || file.type === "application/x-rar-compressed"
+        || file.type === "application/vnd.rar"
+        || file.type === "application/x-rar";
+      const is7z = file.name.toLowerCase().endsWith(".7z")
+        || file.type === "application/x-7z-compressed";
 
-      if (isRar) {
+      if (is7z) {
         showToast(
-          `Архив «${file.name}» (.rar / .7z): распакуй его или пересохрани в .zip. Формат .zip поддерживается напрямую в браузере (включая пароли и подпапки).`,
+          `Архив «${file.name}» (.7z): пересохрани его в .zip или .rar для прямой распаковки в браузере.`,
           "error"
         );
         continue;
       }
 
-      if (isZip) {
-        detectedZipName = file.name.replace(/\.zip$/i, "");
+      if (isRar) {
+        detectedArchiveName = file.name.replace(/\.rar$/i, "");
+        const extracted = await extractRarImages(file);
+        if (extracted && extracted.length) {
+          resultFiles.push(...extracted);
+        }
+      } else if (isZip) {
+        detectedArchiveName = file.name.replace(/\.zip$/i, "");
         const extracted = await extractZipImages(file);
         if (extracted && extracted.length) {
           resultFiles.push(...extracted);
@@ -821,11 +988,11 @@
     }
 
     // Если создаём новый сет и поля персонажа/названия ещё пусты — автозаполняем из названия архива
-    if (targetDialog === "set" && detectedZipName) {
+    if (targetDialog === "set" && detectedArchiveName) {
       const charInput = $("#setCharacter");
       const titleInput = $("#setTitle");
       if (charInput && !charInput.value.trim() && titleInput && !titleInput.value.trim()) {
-        charInput.value = detectedZipName.replace(/[_\-]+/g, " ").trim();
+        charInput.value = detectedArchiveName.replace(/[_\-]+/g, " ").trim();
         const setSlugInput = $("#setSlug");
         if (setSlugInput && !setSlugInput.dataset.touched) {
           setSlugInput.value = slugify(charInput.value);
@@ -3332,7 +3499,7 @@
       panel.classList.remove("is-dragover");
 
       const files = [...(event.dataTransfer?.files || [])]
-        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip)$/i.test(file.name));
+        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip|rar)$/i.test(file.name));
 
       if (files.length) onFiles(files);
     });
@@ -5730,7 +5897,7 @@
       if (btn) btn.textContent = isText ? "👁" : "👁‍🗨";
     });
 
-    // Перетаскивание архивов (.zip) и фото на всё окно сайта
+    // Перетаскивание архивов (.zip / .rar) и фото на всё окно сайта
     window.addEventListener("dragover", event => {
       if (event.dataTransfer?.types?.includes("Files")) {
         event.preventDefault();
@@ -5741,7 +5908,7 @@
       if (event.target.closest(".upload-panel") || event.target.closest("#archivePasswordDialog")) return;
 
       const files = [...(event.dataTransfer?.files || [])]
-        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip)$/i.test(file.name));
+        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip|rar)$/i.test(file.name));
 
       if (!files.length) return;
       event.preventDefault();

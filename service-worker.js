@@ -2,7 +2,7 @@
    Cosplay Archive — Service Worker (PWA & Offline Shell)
    ========================================================= */
 
-const CACHE_NAME = "cosplay-archive-v29";
+const CACHE_NAME = "cosplay-archive-v30";
 
 const PRECACHE_ASSETS = [
   "./",
@@ -15,6 +15,7 @@ const PRECACHE_ASSETS = [
   "js/providers/dropbox.js",
   "js/vendor/jszip.min.js",
   "js/vendor/zip-full.min.js",
+  "js/vendor/unrar.min.js",
   "js/app.js",
   "icons/icon.svg",
   "icons/icon-192.png",
