@@ -2058,7 +2058,6 @@
 
     if (!model) {
       galleryEl.innerHTML = '<p class="muted small" style="padding: 8px;">Сначала сохрани модель и добавь сеты с фото.</p>';
-      galleryEl.classList.remove("hidden");
       return;
     }
 
@@ -2067,7 +2066,6 @@
 
     if (!photos.length) {
       galleryEl.innerHTML = '<p class="muted small" style="padding: 8px;">В сетах этой модели пока нет фото. Загрузи файл кнопкой «📁 Загрузить файл».</p>';
-      galleryEl.classList.remove("hidden");
       return;
     }
 
@@ -2076,13 +2074,12 @@
       return `
         <button type="button" class="model-cover-thumb-btn ${isSelected ? "is-active" : ""}"
           data-action="select-model-cover-photo" data-id="${escapeHTML(p.id)}"
-          title="Выбрать это фото">
+          title="${isSelected ? "Текущая обложка модели" : "Сделать обложкой модели"}">
           <img src="${photoURL(p, "preview")}" alt="Фото">
+          ${isSelected ? '<span class="model-thumb-badge">👑</span>' : ""}
         </button>
       `;
     }).join("");
-
-    galleryEl.classList.toggle("hidden", false);
   }
 
   async function handleModelCoverFile(file) {
@@ -2102,6 +2099,7 @@
 
       const model = getModel($("#modelId")?.value);
       updateModelCoverUI(model);
+      renderModelSetGallery(model);
 
       hideHUD(500);
       showToast("Обложка загружена!", "success");
@@ -2126,8 +2124,8 @@
     updateModelTagSuggestions?.();
 
     state.draftModelCoverPhotoId = model?.coverPhotoId || null;
-    $("#modelCoverSetGallery")?.classList.add("hidden");
     updateModelCoverUI(model);
+    renderModelSetGallery(model);
 
     const slugInput = $("#modelSlug");
     if (slugInput) {
@@ -2309,40 +2307,9 @@
         : "Выбери фотографии для нового сета";
     }
 
-    renderExistingPhotos(set);
+    renderDraftPhotos();
     openDialog($("#setDialog"));
     $("#setCharacter")?.focus();
-  }
-
-  function renderExistingPhotos(set) {
-    const container = $("#existingPhotos");
-    if (!container) return;
-
-    if (!set) {
-      container.innerHTML = "";
-      return;
-    }
-
-    const photos = getSetPhotos(set);
-
-    container.innerHTML = photos.map((photo, index) => {
-      const url = photoURL(photo, "preview");
-      const isCover = photo.id === state.draftCoverPhotoId;
-
-      return `
-        <div class="photo-thumb ${isCover ? "is-cover" : ""}">
-          <img src="${url}" alt="Фото ${index + 1}" loading="lazy">
-          <button type="button" data-action="remove-draft-photo"
-            data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото">×</button>
-          <button type="button" data-action="set-cover"
-            data-id="${escapeHTML(photo.id)}" aria-label="Сделать обложкой"
-            style="top:auto;left:5px;right:auto;bottom:5px;width:auto;padding:0 7px">
-            ${isCover ? "★" : "☆"}
-          </button>
-          ${isCover ? '<span class="cover-label">Обложка</span>' : ""}
-        </div>
-      `;
-    }).join("");
   }
 
   async function makeImageVersion(file, { maxDimension, quality, type }) {
@@ -2528,6 +2495,42 @@
     }
   }
 
+  function updateSetCoverPreviewUI(photos = []) {
+    const previewEl = $("#setCoverThumbPreview");
+    const statusEl = $("#setCoverStatusText");
+    const badgeEl = $("#setCoverBadgeTag");
+    if (!previewEl || !statusEl) return;
+
+    if (!photos || !photos.length) {
+      previewEl.innerHTML = '<div class="set-cover-placeholder"><span>📷</span><small>Нет фото</small></div>';
+      statusEl.textContent = "Добавьте фотографии в сет ниже";
+      if (badgeEl) badgeEl.textContent = "Обложка не выбрана";
+      return;
+    }
+
+    let activeCover = null;
+    let isManual = false;
+    if (state.draftCoverPhotoId) {
+      activeCover = photos.find(p => p.id === state.draftCoverPhotoId);
+      if (activeCover) isManual = true;
+    }
+
+    if (!activeCover) {
+      activeCover = photos[0];
+      isManual = false;
+    }
+
+    const coverUrl = photoURL(activeCover, "cover");
+    previewEl.innerHTML = `<img src="${coverUrl}" alt="Обложка сета">`;
+    if (isManual) {
+      statusEl.textContent = "Выбрано вручную из фотографий сета";
+      if (badgeEl) badgeEl.textContent = "★ Выбранная обложка";
+    } else {
+      statusEl.textContent = "По умолчанию (первое фото сета)";
+      if (badgeEl) badgeEl.textContent = "★ Авто-обложка";
+    }
+  }
+
   function renderDraftPhotos() {
     const container = $("#existingPhotos");
     if (!container) return;
@@ -2536,20 +2539,31 @@
     const existingSet = setId ? getSet(setId) : null;
     const photos = getSetPhotos(existingSet);
 
+    updateSetCoverPreviewUI(photos);
+
+    if (!photos.length) {
+      container.innerHTML = "";
+      return;
+    }
+
+    const effectiveCoverId = (state.draftCoverPhotoId && photos.some(p => p.id === state.draftCoverPhotoId))
+      ? state.draftCoverPhotoId
+      : photos[0]?.id;
+
     container.innerHTML = photos.map((photo, index) => {
       const url = photoURL(photo, "preview");
-      const isCover = photo.id === state.draftCoverPhotoId;
+      const isCover = photo.id === effectiveCoverId;
 
       return `
-        <div class="photo-thumb ${isCover ? "is-cover" : ""}">
+        <div class="photo-thumb ${isCover ? "is-cover" : ""}" data-photo-id="${escapeHTML(photo.id)}">
           <img src="${url}" alt="Фото ${index + 1}" loading="lazy">
-          <button type="button" data-action="remove-draft-photo"
-            data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото">×</button>
-          <button type="button" data-action="set-cover"
-            data-id="${escapeHTML(photo.id)}"
-            style="top:auto;left:5px;right:auto;bottom:5px;width:auto;padding:0 7px"
-            aria-label="Сделать обложкой">${isCover ? "★" : "☆"}</button>
-          ${isCover ? '<span class="cover-label">Обложка</span>' : ""}
+          <button type="button" class="thumb-remove-btn" data-action="remove-draft-photo"
+            data-id="${escapeHTML(photo.id)}" aria-label="Убрать фото" title="Удалить фото">×</button>
+          <button type="button" class="thumb-cover-btn ${isCover ? "is-active" : ""}"
+            data-action="set-cover" data-id="${escapeHTML(photo.id)}"
+            title="${isCover ? "Текущая обложка фотосета" : "Сделать обложкой фотосета"}">
+            ${isCover ? "★ Обложка" : "☆ Обложка"}
+          </button>
         </div>
       `;
     }).join("");
@@ -4915,9 +4929,7 @@
         state.draftModelCoverPhotoId = id;
         const model = getModel($("#modelId")?.value);
         updateModelCoverUI(model);
-        $$(".model-cover-thumb-btn").forEach(btn => {
-          btn.classList.toggle("is-active", btn.dataset.id === id);
-        });
+        renderModelSetGallery(model);
         break;
       }
 
@@ -5072,16 +5084,45 @@
       event.target.value = "";
     });
 
-    $("#modelCoverFromSetsBtn")?.addEventListener("click", () => {
-      const model = getModel($("#modelId")?.value);
-      renderModelSetGallery(model);
-    });
-
     $("#modelCoverResetBtn")?.addEventListener("click", () => {
       state.draftModelCoverPhotoId = null;
       const model = getModel($("#modelId")?.value);
       updateModelCoverUI(model);
-      $("#modelCoverSetGallery")?.classList.add("hidden");
+      renderModelSetGallery(model);
+    });
+
+    // Выбор и загрузка обложки сета в форме
+    $("#setDirectCoverUpload")?.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        showHUD({
+          title: "Загрузка обложки",
+          subtitle: file.name,
+          percent: 50,
+          icon: "📷"
+        });
+        const prepared = await prepareImage(file);
+        state.draftNewPhotos.unshift(prepared);
+        const temporaryUrl = URL.createObjectURL(prepared.blob);
+        state.objectURLs.set(prepared.id, temporaryUrl);
+        state.draftCoverPhotoId = prepared.id;
+        renderDraftPhotos();
+        hideHUD(500);
+        showToast("Обложка фотосета установлена!", "success");
+      } catch (err) {
+        console.error(err);
+        hideHUD(0);
+        showToast("Не удалось обработать файл обложки.", "error");
+      } finally {
+        event.target.value = "";
+      }
+    });
+
+    $("#setResetCoverBtn")?.addEventListener("click", () => {
+      state.draftCoverPhotoId = null;
+      renderDraftPhotos();
+      showToast("Обложка сброшена на 1-е фото", "info");
     });
 
     // Режим приватности (размытие контента)

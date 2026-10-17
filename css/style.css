@@ -1329,7 +1329,7 @@ input[type="checkbox"] {
   object-fit: cover;
 }
 
-.photo-thumb button {
+.photo-thumb .thumb-remove-btn {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -1343,27 +1343,56 @@ input[type="checkbox"] {
   background: rgba(16, 14, 23, 0.88);
   color: #fff;
   font-size: 15px;
+  cursor: pointer;
+  z-index: 3;
 }
 
-.photo-thumb button:hover {
+.photo-thumb .thumb-remove-btn:hover {
   background: #a83c58;
+  border-color: #ff6080;
+}
+
+.photo-thumb .thumb-cover-btn {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(16, 14, 23, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #e0d3ff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 120ms ease;
+}
+
+.photo-thumb .thumb-cover-btn:hover {
+  background: rgba(182, 154, 255, 0.25);
+  border-color: var(--accent, #b69aff);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.photo-thumb .thumb-cover-btn.is-active {
+  background: var(--accent, #b69aff);
+  border-color: var(--accent, #b69aff);
+  color: #120e1c;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(182, 154, 255, 0.45);
 }
 
 .photo-thumb.is-cover {
   border: 2px solid var(--accent);
-}
-
-.photo-thumb .cover-label {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  left: 4px;
-  padding: 3px 5px;
-  border-radius: 5px;
-  background: rgba(16, 14, 23, 0.85);
-  color: #e0d3ff;
-  font-size: 9px;
-  text-align: center;
+  box-shadow: 0 0 12px rgba(182, 154, 255, 0.35);
 }
 
 /* -------------------- Описание сета -------------------- */
@@ -2899,6 +2928,33 @@ body.privacy-active .privacy-curtain {
 
 /* -------------------- Выбор обложки модели в диалоге -------------------- */
 
+.cover-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.cover-section-header label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #f0ecf9);
+  margin: 0;
+}
+
+.cover-subtitle {
+  font-size: 12px;
+  color: var(--text-muted, #9484b5);
+}
+
+.gallery-sublabel {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted, #9484b5);
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
 .model-cover-group {
   margin: 12px 0 16px;
   padding: 16px;
@@ -2911,7 +2967,7 @@ body.privacy-active .privacy-curtain {
   display: flex;
   align-items: center;
   gap: 18px;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .model-cover-preview-circle {
@@ -2958,13 +3014,16 @@ body.privacy-active .privacy-curtain {
   margin: 0;
 }
 
+.model-cover-gallery-wrap {
+  margin-top: 4px;
+}
+
 .model-cover-set-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
   gap: 8px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: 6px;
+  padding: 6px 2px 2px;
   max-height: 190px;
   overflow-y: auto;
 }
@@ -2974,6 +3033,7 @@ body.privacy-active .privacy-curtain {
 }
 
 .model-cover-thumb-btn {
+  position: relative;
   aspect-ratio: 1;
   padding: 0;
   border: 2px solid transparent;
@@ -2998,6 +3058,108 @@ body.privacy-active .privacy-curtain {
 .model-cover-thumb-btn.is-active {
   border-color: var(--accent, #b69aff);
   box-shadow: 0 0 10px rgba(182, 154, 255, 0.5);
+}
+
+.model-cover-thumb-btn .model-thumb-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background: rgba(20, 16, 29, 0.85);
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 3px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* -------------------- Выбор обложки фотосета в диалоге -------------------- */
+
+.set-cover-picker-panel {
+  margin: 12px 0 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.set-cover-preview-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.set-cover-thumb-preview {
+  width: 86px;
+  height: 112px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid var(--accent, #b69aff);
+  background: #161220;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+.set-cover-thumb-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.set-cover-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text-muted, #9484b5);
+  font-size: 22px;
+}
+
+.set-cover-placeholder small {
+  font-size: 10.5px;
+}
+
+.set-cover-info-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.set-cover-badge-tag {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(182, 154, 255, 0.18);
+  border: 1px solid rgba(182, 154, 255, 0.4);
+  color: #e0d3ff;
+  border-radius: 999px;
+}
+
+.set-cover-status-text {
+  font-size: 12.5px;
+  color: var(--text-muted, #9484b5);
+  line-height: 1.4;
+}
+
+.set-cover-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.set-cover-upload-label {
+  cursor: pointer;
+  margin: 0;
 }
 
 /* -------------------- Карточки в галерее сета (быстрый выбор обложек) -------------------- */

@@ -30,15 +30,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=22">
+  <link rel="stylesheet" href="css/style.css?v=23">
 
-  <script src="js/config.js?v=22" defer></script>
-  <script src="js/providers/registry.js?v=22" defer></script>
-  <script src="js/drive.js?v=22" defer></script>
-  <script src="js/providers/dropbox.js?v=22" defer></script>
-  <script src="js/vendor/jszip.min.js?v=22" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=22" defer></script>
-  <script src="js/app.js?v=22" defer></script>
+  <script src="js/config.js?v=23" defer></script>
+  <script src="js/providers/registry.js?v=23" defer></script>
+  <script src="js/drive.js?v=23" defer></script>
+  <script src="js/providers/dropbox.js?v=23" defer></script>
+  <script src="js/vendor/jszip.min.js?v=23" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=23" defer></script>
+  <script src="js/app.js?v=23" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -402,7 +402,10 @@
 
       <!-- Секция обложки модели -->
       <div class="model-cover-group">
-        <label>Обложка модели</label>
+        <div class="cover-section-header">
+          <label>Обложка / Аватарка модели</label>
+          <span class="cover-subtitle">Главная фотография для карточки и профиля косплеерши</span>
+        </div>
         <div class="model-cover-picker-box">
           <div class="model-cover-preview-circle" id="modelCoverPreview">
             <!-- Изображение или инициал -->
@@ -414,16 +417,16 @@
                 📁 Загрузить файл
                 <input type="file" id="modelCoverFileInput" accept="image/*" hidden>
               </label>
-              <button type="button" class="button button-quiet" id="modelCoverFromSetsBtn">
-                🖼️ Выбрать из сетов
-              </button>
               <button type="button" class="button button-quiet" id="modelCoverResetBtn" title="Вернуть автоматический выбор из сета">
-                Сбросить
+                ↺ Авто-обложка
               </button>
             </div>
           </div>
         </div>
-        <div class="model-cover-set-gallery hidden" id="modelCoverSetGallery"></div>
+        <div class="model-cover-gallery-wrap">
+          <label class="gallery-sublabel">Нажмите на фото из сетов, чтобы сделать его обложкой:</label>
+          <div class="model-cover-set-gallery" id="modelCoverSetGallery"></div>
+        </div>
       </div>
 
       <div class="dialog-actions">
@@ -551,6 +554,32 @@
             placeholder="Описание, источник, заметки"
           ></textarea>
         </label>
+      </div>
+
+      <!-- Секция выбора обложки сета -->
+      <div class="set-cover-picker-panel">
+        <div class="cover-section-header">
+          <label>Обложка фотосета</label>
+          <span class="cover-subtitle">Главное изображение для карточки сета в каталоге</span>
+        </div>
+        <div class="set-cover-preview-box" id="setCoverPreviewBox">
+          <div class="set-cover-thumb-preview" id="setCoverThumbPreview">
+            <!-- Большая обложка 4:5 или заглушка -->
+          </div>
+          <div class="set-cover-info-col">
+            <div class="set-cover-badge-tag" id="setCoverBadgeTag">★ Обложка сета</div>
+            <div class="set-cover-status-text" id="setCoverStatusText">По умолчанию используется 1-е фото в сете</div>
+            <div class="set-cover-action-buttons">
+              <label class="button button-quiet set-cover-upload-label">
+                📁 Загрузить свою обложку
+                <input type="file" id="setDirectCoverUpload" accept="image/*" hidden>
+              </label>
+              <button type="button" class="button button-quiet" id="setResetCoverBtn" title="Вернуть первое фото в качестве обложки">
+                ↺ Первое фото
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="upload-panel">
