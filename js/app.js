@@ -771,6 +771,16 @@
   function closeDialog(dialog) {
     if (!dialog) return;
 
+    if (dialog.id === "photoDialog") {
+      window.removeEventListener("resize", handleLightboxWindowResize);
+      window.removeEventListener("orientationchange", handleLightboxWindowResize);
+      const image = $("#lightboxImage");
+      if (image) {
+        image.style.width = "";
+        image.style.height = "";
+      }
+    }
+
     if (typeof dialog.close === "function" && dialog.open) {
       dialog.close();
     } else {
@@ -952,6 +962,9 @@
         if (blob) {
           const url = URL.createObjectURL(blob);
           streamCache.set(photo.id, url);
+          // Кэшируем скачанный оригинал в IndexedDB для мгновенного последующего открытия
+          photo.blob = blob;
+          db.put(CONFIG.stores.photos, photo).catch(() => {});
           return url;
         }
       } catch (err) {
@@ -959,6 +972,60 @@
       }
     }
     return photoURL(photo, "preview");
+  }
+
+  let isFetchingCovers = false;
+  async function ensureHighResCovers() {
+    if (isFetchingCovers || !isUserAuthenticated()) return;
+    refreshActiveProvider();
+    if (!drive || typeof drive.downloadFile !== "function") return;
+
+    isFetchingCovers = true;
+    try {
+      const coverPhotoMap = new Map();
+
+      for (const model of state.models) {
+        const cover = getModelCover(model.id);
+        if (cover && cover.id) coverPhotoMap.set(cover.id, cover);
+      }
+
+      for (const set of state.sets) {
+        const cover = getCover(set);
+        if (cover && cover.id) coverPhotoMap.set(cover.id, cover);
+      }
+
+      const missing = [];
+      for (const [id, photo] of coverPhotoMap.entries()) {
+        if (!(photo.blob instanceof Blob) && photo.driveFileId) {
+          missing.push(photo);
+        }
+      }
+
+      if (!missing.length) return;
+
+      for (const photo of missing) {
+        try {
+          const blob = await drive.downloadFile(photo.driveFileId, photo.providerTargetId);
+          if (blob) {
+            photo.blob = blob;
+            await db.put(CONFIG.stores.photos, photo);
+
+            const hdUrl = photoURL(photo, "cover");
+            const imgs = document.querySelectorAll(`img[data-cover-photo-id="${photo.id}"]`);
+            imgs.forEach(img => {
+              if (img.src !== hdUrl) {
+                img.src = hdUrl;
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("Не удалось подгрузить HD обложку:", photo.id, err);
+        }
+        await new Promise(r => setTimeout(r, 60));
+      }
+    } finally {
+      isFetchingCovers = false;
+    }
   }
 
   function isUserAuthenticated() {
@@ -1264,7 +1331,7 @@
         <a class="card-cover" href="${modelHref(model.id)}"
           aria-label="Открыть модель ${escapeHTML(model.name)}">
           ${coverURL
-            ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}" loading="lazy">`
+            ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}" loading="lazy" data-cover-photo-id="${cover?.id || ""}">`
             : `<div class="cover-placeholder">
                  ${escapeHTML(getModelInitial(model))}
                </div>`}
@@ -1306,7 +1373,7 @@
         <a class="card-cover" href="${setHref(set.id)}"
           aria-label="Открыть сет ${escapeHTML(set.character)}">
           ${image
-            ? `<img src="${image}" alt="${escapeHTML(set.character)}" loading="lazy">`
+            ? `<img src="${image}" alt="${escapeHTML(set.character)}" loading="lazy" data-cover-photo-id="${cover?.id || ""}">`
             : `<div class="cover-placeholder">✦</div>`}
           <span class="card-count">
             ${photoCount} ${pluralize(photoCount, "фото", "фото", "фото")}
@@ -1421,6 +1488,7 @@
     } else {
       hideEmpty(empty);
     }
+    setTimeout(ensureHighResCovers, 100);
   }
 
   function renderModelFilter() {
@@ -1626,6 +1694,7 @@
     } else {
       hideEmpty(empty);
     }
+    setTimeout(ensureHighResCovers, 100);
   }
 
   function renderModelDetail() {
@@ -1654,7 +1723,7 @@
       header.innerHTML = `
         <div class="model-detail-hero">
           <div class="model-avatar">${coverURL
-            ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}">`
+            ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}" data-cover-photo-id="${cover?.id || ""}">`
             : escapeHTML(getModelInitial(model))}</div>
           <div class="hero-content">
             <p class="eyebrow">Модель</p>
@@ -1709,6 +1778,7 @@
     } else {
       hideEmpty(empty);
     }
+    setTimeout(ensureHighResCovers, 100);
   }
 
   async function renderStats() {
@@ -2400,11 +2470,11 @@
     const canProcess = Boolean(processing.enabled)
       && ("createImageBitmap" in window);
 
-    // Маленькое превью для сеток — всегда (кэш, не синхронизируется).
+    // Качественное превью для сеток (до 960px, 88% качество)
     const preview = canProcess
       ? await makeImageVersion(file, {
-          maxDimension: processing.previewMaxDimension || 480,
-          quality: processing.previewQuality || 0.8,
+          maxDimension: processing.previewMaxDimension || 960,
+          quality: processing.previewQuality || 0.88,
           type: processing.outputType || "image/webp"
         })
       : null;
@@ -3609,6 +3679,45 @@
     resetZoom();
     renderLightboxPhoto();
     openDialog(dialog);
+    window.addEventListener("resize", handleLightboxWindowResize);
+    window.addEventListener("orientationchange", handleLightboxWindowResize);
+  }
+
+  function handleLightboxWindowResize() {
+    const dialog = $("#photoDialog");
+    if (dialog && dialog.open) {
+      fitLightboxImage();
+    }
+  }
+
+  function fitLightboxImage() {
+    const image = $("#lightboxImage");
+    const stage = $("#lightboxStage");
+    if (!image || !stage) return;
+    if (!image.naturalWidth || !image.naturalHeight) return;
+
+    const style = window.getComputedStyle(stage);
+    const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    const padY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    const availW = Math.max(100, stage.clientWidth - padX);
+    const availH = Math.max(100, stage.clientHeight - padY);
+
+    const naturalAspect = image.naturalWidth / image.naturalHeight;
+    let targetW, targetH;
+
+    if (availW / availH > naturalAspect) {
+      targetH = availH;
+      targetW = availH * naturalAspect;
+    } else {
+      targetW = availW;
+      targetH = availW / naturalAspect;
+    }
+
+    image.style.width = `${Math.round(targetW)}px`;
+    image.style.height = `${Math.round(targetH)}px`;
+
+    clampZoom();
+    applyZoom();
   }
 
   async function renderLightboxPhoto() {
@@ -3623,21 +3732,52 @@
         `${state.lightboxIndex + 1} / ${state.lightboxPhotos.length}`;
     }
 
-    if (image) {
-      image.alt = photo.name || "Фотография сета";
+    if (!image) return;
 
-      // Мгновенно показываем превью, пока оригинал подтягивается
+    image.alt = photo.name || "Фотография сета";
+    const currentId = photo.id;
+
+    image.onload = () => {
+      fitLightboxImage();
+    };
+
+    // 1. Если локальный Ultra-HD оригинал уже в памяти или IndexedDB:
+    if (photo.blob instanceof Blob) {
+      const fullUrl = photoURL(photo, "full");
+      image.src = fullUrl;
+      if (image.complete && image.naturalWidth > 0) {
+        fitLightboxImage();
+      }
+    } else {
+      // 2. Фото в облаке: сразу показываем превью, но fitLightboxImage мгновенно
+      // рассчитывает и подгоняет его размер под пропорции экрана,
+      // чтобы фото сразу отображалось во весь экран, а не маленькой миниатюрой!
       const previewUrl = photoURL(photo, "preview");
-      if (previewUrl && !photo.blob) {
+      if (previewUrl) {
         image.src = previewUrl;
+        if (image.complete && image.naturalWidth > 0) {
+          fitLightboxImage();
+        }
       }
 
-      // Подгружаем оригинал (из локального blob либо потоково из Google Drive)
-      const currentId = photo.id;
-      const fullUrl = await loadFullPhotoURL(photo);
-      if (state.lightboxPhotos[state.lightboxIndex]?.id === currentId && fullUrl) {
-        image.src = fullUrl;
-      }
+      // Фоново подтягиваем и предварительно декодируем оригинал
+      loadFullPhotoURL(photo).then(async fullUrl => {
+        if (!fullUrl) return;
+        if (state.lightboxPhotos[state.lightboxIndex]?.id !== currentId) return;
+
+        try {
+          const preloader = new Image();
+          preloader.src = fullUrl;
+          if (preloader.decode) {
+            await preloader.decode();
+          }
+        } catch {}
+
+        if (state.lightboxPhotos[state.lightboxIndex]?.id === currentId) {
+          image.src = fullUrl;
+          fitLightboxImage();
+        }
+      });
     }
 
     // Фоновая предзагрузка соседних оригиналов
@@ -4624,6 +4764,19 @@
 
       let uploadedCounter = 0;
 
+      // Определяем все ID фотографий, которые являются обложками моделей или сетов
+      const coverPhotoIds = new Set();
+      for (const m of models) {
+        if (m.coverPhotoId) coverPhotoIds.add(m.coverPhotoId);
+      }
+      for (const s of sets) {
+        if (s.coverPhotoId) {
+          coverPhotoIds.add(s.coverPhotoId);
+        } else if (Array.isArray(s.photoIds) && s.photoIds.length > 0) {
+          coverPhotoIds.add(s.photoIds[0]);
+        }
+      }
+
       for (const id of photoIds) {
         const local = localPhotoById.get(id);
         const remote = remotePhotoById.get(id);
@@ -4666,10 +4819,13 @@
           local?.providerTargetId ??
           null;
 
-        // В Cloud-First режиме: если фото уже в облаке, не скачиваем его оригинал в память устройства!
+        const isCover = coverPhotoIds.has(id);
+
+        // В Cloud-First режиме: если фото уже в облаке, не скачиваем его оригинал в память устройства,
+        // НО ДЛЯ ОБЛОЖЕК ОБЯЗАТЕЛЬНО СКАЧИВАЕМ ОРИГИНАЛ (Ultra-HD), ЧТОБЫ КАТАЛОГ БЫЛ МАКСИМАЛЬНО ЧЕТКИМ!
         const downloadOriginals = CONFIG.cloudFirst?.downloadOriginalsOnSync ?? false;
 
-        if (!blob && driveFileId && downloadOriginals) {
+        if (!blob && driveFileId && (isCover || downloadOriginals)) {
           try {
             blob = await drive.downloadFile(driveFileId, providerTargetId);
           } catch (error) {
@@ -4724,9 +4880,10 @@
         }
 
         // В Cloud-First режиме: если фото загружено в Google Drive,
-        // освобождаем тяжелый локальный оригинал из памяти устройства!
+        // освобождаем тяжелый локальный оригинал из памяти устройства,
+        // НО ДЛЯ ОБЛОЖЕК МОДЕЛЕЙ И СЕТОВ СОХРАНЯЕМ ОРИГИНАЛЬНЫЙ BLOB ВСЕГДА!
         const purgeOriginals = CONFIG.cloudFirst?.purgeOriginalsAfterUpload ?? true;
-        const keepLocalBlob = driveFileId && purgeOriginals ? null : blob;
+        const keepLocalBlob = (driveFileId && purgeOriginals && !isCover) ? null : blob;
 
         const record = { ...meta };
 
@@ -4806,6 +4963,7 @@
 
       await refreshData();
       renderAll();
+      setTimeout(ensureHighResCovers, 50);
 
       state.drive.lastSyncAt = new Date().toISOString();
 
@@ -5675,6 +5833,10 @@
 
       renderAll();
       applyRoute(true);
+
+      if (isUserAuthenticated()) {
+        setTimeout(ensureHighResCovers, 200);
+      }
 
       // Защита от случайной очистки IndexedDB браузером (iOS Safari, Android Chrome)
       if (navigator.storage && typeof navigator.storage.persist === "function") {
