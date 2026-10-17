@@ -456,6 +456,295 @@
     $("#progressBar")?.classList.add("hidden");
   }
 
+  /* -------------------- Плавающий оверлей прогресса (HUD) -------------------- */
+
+  let hudHideTimer = null;
+
+  function showHUD({ title = "Загрузка…", subtitle = "", percent = 0, current = null, total = null, icon = "⚡" } = {}) {
+    clearTimeout(hudHideTimer);
+    const hud = $("#progressHud");
+    if (!hud) return;
+
+    const titleEl = $("#progressHudTitle");
+    const iconEl = $("#progressHudIcon");
+    if (titleEl) titleEl.textContent = title;
+    if (iconEl) iconEl.textContent = icon;
+
+    updateHUD({ subtitle, percent, current, total });
+    hud.classList.remove("hidden");
+  }
+
+  function updateHUD({ subtitle = null, percent = null, current = null, total = null } = {}) {
+    const hud = $("#progressHud");
+    if (!hud || hud.classList.contains("hidden")) return;
+
+    const fillEl = $("#progressHudFill");
+    const pctEl = $("#progressHudPercent");
+    const subEl = $("#progressHudSubtitle");
+
+    if (current != null && total != null && total > 0) {
+      const pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+      if (fillEl) fillEl.style.width = `${pct}%`;
+      if (pctEl) pctEl.textContent = `${pct}%`;
+    } else if (percent != null) {
+      const pct = Math.min(100, Math.max(0, Math.round(percent)));
+      if (fillEl) fillEl.style.width = `${pct}%`;
+      if (pctEl) pctEl.textContent = `${pct}%`;
+    }
+
+    if (subtitle != null && subEl) {
+      subEl.textContent = subtitle;
+    }
+  }
+
+  function hideHUD(delay = 600) {
+    clearTimeout(hudHideTimer);
+    hudHideTimer = setTimeout(() => {
+      const hud = $("#progressHud");
+      if (hud) hud.classList.add("hidden");
+    }, delay);
+  }
+
+  /* -------------------- Извлечение ZIP-архивов с поддержкой паролей -------------------- */
+
+  function promptArchivePassword(archiveName, isRetry = false) {
+    return new Promise(resolve => {
+      const dialog = $("#archivePasswordDialog");
+      const form = $("#archivePasswordForm");
+      const input = $("#archivePasswordInput");
+      const sub = $("#archivePasswordSub");
+      const errorMsg = $("#archivePasswordError");
+      const cancelBtn = $("#archivePasswordCancel");
+
+      if (!dialog || !form || !input) {
+        const fallback = prompt(
+          `Введи пароль от архива «${archiveName}»:` +
+            (isRetry ? "\n(Предыдущий пароль неверен!)" : "")
+        );
+        resolve(fallback);
+        return;
+      }
+
+      if (sub) {
+        sub.textContent = `Файл «${archiveName}» защищён паролем. Введи пароль для распаковки:`;
+      }
+
+      if (errorMsg) {
+        errorMsg.classList.toggle("hidden", !isRetry);
+      }
+
+      input.value = "";
+      let resolved = false;
+
+      const cleanup = () => {
+        form.removeEventListener("submit", onSubmit);
+        cancelBtn?.removeEventListener("click", onCancel);
+        dialog.removeEventListener("close", onClose);
+      };
+
+      const onSubmit = (e) => {
+        e.preventDefault();
+        const pwd = input.value;
+        resolved = true;
+        cleanup();
+        closeDialog(dialog);
+        resolve(pwd);
+      };
+
+      const onCancel = () => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          closeDialog(dialog);
+          resolve(null);
+        }
+      };
+
+      const onClose = () => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve(null);
+        }
+      };
+
+      form.addEventListener("submit", onSubmit);
+      cancelBtn?.addEventListener("click", onCancel);
+      dialog.addEventListener("close", onClose, { once: true });
+
+      openDialog(dialog);
+      setTimeout(() => input.focus(), 60);
+    });
+  }
+
+  async function extractZipImages(file) {
+    if (!window.zip) {
+      showToast("Модуль распаковки архивов ещё загружается…", "error");
+      return [];
+    }
+
+    try {
+      if (typeof window.zip.configure === "function") {
+        window.zip.configure({ useWebWorkers: false });
+      }
+    } catch {}
+
+    let reader;
+    try {
+      reader = new window.zip.ZipReader(new window.zip.BlobReader(file));
+      const entries = await reader.getEntries();
+
+      // Фильтруем файлы изображений, пропуская папки и служебный мусор
+      const imageEntries = entries.filter(e => {
+        if (e.directory) return false;
+        const name = (e.filename || "").toLowerCase();
+        if (name.includes("__macosx/") || name.includes("thumbs.db") || name.startsWith(".")) return false;
+        return /\.(jpe?g|png|webp|gif|avif)$/i.test(name);
+      });
+
+      if (!imageEntries.length) {
+        showToast(`В архиве «${file.name}» не найдено поддерживаемых фотографий.`, "error");
+        await reader.close();
+        return [];
+      }
+
+      const isEncrypted = imageEntries.some(e => e.encrypted);
+      let password = "";
+
+      if (isEncrypted) {
+        password = await promptArchivePassword(file.name);
+        if (password === null) {
+          await reader.close();
+          return [];
+        }
+      }
+
+      showHUD({
+        title: "Распаковка архива",
+        subtitle: `Извлечение 0 из ${imageEntries.length}…`,
+        current: 0,
+        total: imageEntries.length,
+        icon: "📦"
+      });
+
+      const extractedFiles = [];
+
+      for (let i = 0; i < imageEntries.length; i++) {
+        const entry = imageEntries[i];
+        const baseName = entry.filename.split("/").pop() || `photo_${i + 1}.jpg`;
+        const ext = baseName.split(".").pop().toLowerCase();
+        const mime = ext === "png" ? "image/png"
+          : ext === "webp" ? "image/webp"
+          : ext === "gif" ? "image/gif"
+          : ext === "avif" ? "image/avif"
+          : "image/jpeg";
+
+        let blob = null;
+        let attempt = 0;
+
+        while (attempt < 3) {
+          try {
+            blob = await entry.getData(
+              new window.zip.BlobWriter(mime),
+              { password: password || undefined }
+            );
+            break;
+          } catch (err) {
+            const msg = String(err?.message || "");
+            if (msg.includes("password") || msg.includes("encrypted") || msg.includes("signature")) {
+              password = await promptArchivePassword(file.name, true);
+              if (password === null) {
+                hideHUD(0);
+                await reader.close();
+                return extractedFiles;
+              }
+              attempt++;
+            } else {
+              console.warn("Ошибка извлечения фото из архива:", entry.filename, err);
+              break;
+            }
+          }
+        }
+
+        if (blob) {
+          const extractedFile = new File([blob], baseName, {
+            type: mime,
+            lastModified: Date.now()
+          });
+          extractedFiles.push(extractedFile);
+        }
+
+        updateHUD({
+          subtitle: `Извлечено ${i + 1} из ${imageEntries.length} (${baseName})`,
+          current: i + 1,
+          total: imageEntries.length
+        });
+      }
+
+      await reader.close();
+      hideHUD(600);
+      showToast(`Из архива извлечено фотографий: ${extractedFiles.length}`, "success");
+      return extractedFiles;
+    } catch (error) {
+      console.error("Ошибка при распаковке архива:", error);
+      showToast(`Не удалось прочитать архив «${file.name}»: ${error.message}`, "error");
+      hideHUD(0);
+      try { await reader?.close(); } catch {}
+      return [];
+    }
+  }
+
+  async function processFilesOrArchives(fileList, targetDialog = "set") {
+    const rawFiles = Array.from(fileList || []);
+    if (!rawFiles.length) return [];
+
+    const resultFiles = [];
+    let detectedZipName = "";
+
+    for (const file of rawFiles) {
+      const isZip = file.name.toLowerCase().endsWith(".zip")
+        || file.type === "application/zip"
+        || file.type === "application/x-zip-compressed";
+      const isRar = file.name.toLowerCase().endsWith(".rar")
+        || file.name.toLowerCase().endsWith(".7z");
+
+      if (isRar) {
+        showToast(
+          `Архив «${file.name}» (.rar / .7z): распакуй его или пересохрани в .zip. Формат .zip поддерживается напрямую в браузере (включая пароли и подпапки).`,
+          "error"
+        );
+        continue;
+      }
+
+      if (isZip) {
+        detectedZipName = file.name.replace(/\.zip$/i, "");
+        const extracted = await extractZipImages(file);
+        if (extracted && extracted.length) {
+          resultFiles.push(...extracted);
+        }
+      } else if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif)$/i.test(file.name)) {
+        resultFiles.push(file);
+      } else {
+        showToast(`Пропущен неподдерживаемый файл: ${file.name}`, "error");
+      }
+    }
+
+    // Если создаём новый сет и поля персонажа/названия ещё пусты — автозаполняем из названия архива
+    if (targetDialog === "set" && detectedZipName) {
+      const charInput = $("#setCharacter");
+      const titleInput = $("#setTitle");
+      if (charInput && !charInput.value.trim() && titleInput && !titleInput.value.trim()) {
+        charInput.value = detectedZipName.replace(/[_\-]+/g, " ").trim();
+        const setSlugInput = $("#setSlug");
+        if (setSlugInput && !setSlugInput.dataset.touched) {
+          setSlugInput.value = slugify(charInput.value);
+        }
+      }
+    }
+
+    return resultFiles;
+  }
+
   function closeCardMenus() {
     $$(".card-menu-wrap.is-open").forEach(wrap => {
       wrap.classList.remove("is-open");
@@ -2008,8 +2297,10 @@
   }
 
   async function addSelectedPhotos(fileList) {
-    const files = Array.from(fileList || []);
+    const rawFiles = Array.from(fileList || []);
+    if (!rawFiles.length) return;
 
+    const files = await processFilesOrArchives(rawFiles, "set");
     if (!files.length) return;
 
     const max = CONFIG.maxPhotosPerImport || 200;
@@ -2029,24 +2320,54 @@
     const input = $("#setPhotos");
     if (input) input.disabled = true;
 
+    showHUD({
+      title: "Обработка фотографий",
+      subtitle: `Подготовка ${files.length} фото…`,
+      current: 0,
+      total: files.length,
+      icon: "🖼️"
+    });
+
     try {
-      for (const file of files) {
+      let count = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         if (!CONFIG.allowedImageTypes.includes(file.type)) {
           showToast(`Пропущен неподдерживаемый файл: ${file.name}`, "error");
           continue;
         }
+
+        updateHUD({
+          subtitle: `Сжатие ${i + 1} из ${files.length} (${file.name})`,
+          current: i + 1,
+          total: files.length
+        });
 
         const prepared = await prepareImage(file);
         state.draftNewPhotos.push(prepared);
 
         const temporaryUrl = URL.createObjectURL(prepared.blob);
         state.objectURLs.set(prepared.id, temporaryUrl);
+        count++;
+
+        if (count % 4 === 0) {
+          renderDraftPhotos();
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
 
       renderDraftPhotos();
+      showHUD({
+        title: "Обработка завершена",
+        subtitle: `Успешно добавлено ${count} фото.`,
+        percent: 100,
+        icon: "✓"
+      });
+      hideHUD(1500);
       showToast(`Добавлено фотографий: ${state.draftNewPhotos.length}`, "success");
     } catch (error) {
       console.error(error);
+      hideHUD(0);
       showToast("Не удалось обработать фотографии.", "error");
     } finally {
       if (input) {
@@ -2243,9 +2564,10 @@
   }
 
   async function addMassPhotos(fileList) {
-    const files = Array.from(fileList || [])
-      .filter(file => file.type.startsWith("image/"));
+    const rawFiles = Array.from(fileList || []);
+    if (!rawFiles.length) return;
 
+    const files = await processFilesOrArchives(rawFiles, "mass");
     if (!files.length) return;
 
     const max = CONFIG.maxPhotosPerImport || 200;
@@ -2258,23 +2580,38 @@
     const input = $("#massUploadInput");
     if (input) input.disabled = true;
 
+    showHUD({
+      title: "Обработка фотографий",
+      subtitle: `Подготовка ${files.length} фото…`,
+      current: 0,
+      total: files.length,
+      icon: "🖼️"
+    });
+
     let added = 0;
     let skipped = 0;
 
     try {
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         if (!CONFIG.allowedImageTypes.includes(file.type)) {
           skipped += 1;
           continue;
         }
 
+        updateHUD({
+          subtitle: `Сжатие ${i + 1} из ${files.length} (${file.name})`,
+          current: i + 1,
+          total: files.length
+        });
+
         try {
           const prepared = await prepareImage(file);
           state.massUploadPhotos.push(prepared);
-      state.massUploadObjectURLs.set(
-        prepared.id,
-        URL.createObjectURL(prepared.preview || prepared.blob)
-      );
+          state.massUploadObjectURLs.set(
+            prepared.id,
+            URL.createObjectURL(prepared.preview || prepared.blob)
+          );
           added += 1;
         } catch (error) {
           console.warn(`Файл «${file.name}» пропущен.`, error);
@@ -2290,6 +2627,17 @@
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
+
+      showHUD({
+        title: "Обработка завершена",
+        subtitle: `Успешно подготовлено ${added} фото.`,
+        percent: 100,
+        icon: "✓"
+      });
+      hideHUD(1500);
+    } catch (error) {
+      console.error(error);
+      hideHUD(0);
     } finally {
       if (input) {
         input.disabled = false;
@@ -2390,7 +2738,7 @@
       panel.classList.remove("is-dragover");
 
       const files = [...(event.dataTransfer?.files || [])]
-        .filter(file => file.type.startsWith("image/"));
+        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip)$/i.test(file.name));
 
       if (files.length) onFiles(files);
     });
@@ -3900,6 +4248,29 @@
         console.warn("Не удалось построить план таргетов:", error);
       }
 
+      // Подсчитываем, сколько новых фото реально предстоит выгрузить в облако
+      const photosToUpload = [];
+      for (const id of photoIds) {
+        const local = localPhotoById.get(id);
+        const existingEntry = remotePhotoMap.get(id);
+        const hasBlob = (local?.blob instanceof Blob) || (typeof local?.dataURL === "string" && local.dataURL);
+        if (hasBlob && !existingEntry?.file) {
+          photosToUpload.push(id);
+        }
+      }
+
+      if (photosToUpload.length > 0) {
+        showHUD({
+          title: `Выгрузка в ${providerLabel}`,
+          subtitle: `Подготовка 0 из ${photosToUpload.length} фото…`,
+          current: 0,
+          total: photosToUpload.length,
+          icon: "☁️"
+        });
+      }
+
+      let uploadedCounter = 0;
+
       for (const id of photoIds) {
         const local = localPhotoById.get(id);
         const remote = remotePhotoById.get(id);
@@ -3976,6 +4347,12 @@
                     plan.free = Math.max(0, plan.free - (blob.size || 0));
                   }
                   uploaded = true;
+                  uploadedCounter++;
+                  updateHUD({
+                    subtitle: `Выгружено ${uploadedCounter} из ${photosToUpload.length} фото…`,
+                    current: uploadedCounter,
+                    total: photosToUpload.length
+                  });
                 } catch (uploadErr) {
                   const msg = String(uploadErr.message || "");
                   if (msg.includes("storageQuotaExceeded") || msg.includes("quota") || msg.includes("insufficientFileStorageQuota")) {
@@ -4090,9 +4467,20 @@
       } else if (!silent) {
         showToast("Синхронизация завершена.", "success");
       }
+
+      if (photosToUpload.length > 0) {
+        showHUD({
+          title: "Синхронизация завершена",
+          subtitle: `Все ${photosToUpload.length} фото выгружены в ${providerLabel}!`,
+          percent: 100,
+          icon: "✓"
+        });
+        hideHUD(2200);
+      }
     } catch (error) {
       console.error(error);
       state.drive.error = error.message || "ошибка синхронизации";
+      hideHUD(0);
 
       if (!silent) {
         showToast(`Синхронизация не удалась: ${error.message}`, "error");
@@ -4101,6 +4489,7 @@
       quotaCache.clear();
       state.drive.syncing = false;
       hideProgress();
+      hideHUD(800);
       updateDriveUI();
     }
   }
@@ -4485,6 +4874,50 @@
     // Перетаскивание файлов в панели фотографий.
     bindDropZone(document.querySelector("#setDialog .upload-panel"), addSelectedPhotos);
     bindDropZone($("#massUploadDrop"), addMassPhotos);
+
+    // Переключение видимости пароля от архива
+    $("#archivePasswordToggle")?.addEventListener("click", () => {
+      const input = $("#archivePasswordInput");
+      if (!input) return;
+      const isText = input.type === "text";
+      input.type = isText ? "password" : "text";
+      const btn = $("#archivePasswordToggle");
+      if (btn) btn.textContent = isText ? "👁" : "👁‍🗨";
+    });
+
+    // Перетаскивание архивов (.zip) и фото на всё окно сайта
+    window.addEventListener("dragover", event => {
+      if (event.dataTransfer?.types?.includes("Files")) {
+        event.preventDefault();
+      }
+    });
+
+    window.addEventListener("drop", event => {
+      if (event.target.closest(".upload-panel") || event.target.closest("#archivePasswordDialog")) return;
+
+      const files = [...(event.dataTransfer?.files || [])]
+        .filter(file => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif|zip)$/i.test(file.name));
+
+      if (!files.length) return;
+      event.preventDefault();
+
+      const setDialogOpen = $("#setDialog")?.open;
+      const massDialogOpen = $("#massUploadDialog")?.open;
+
+      if (setDialogOpen) {
+        addSelectedPhotos(files);
+      } else if (massDialogOpen) {
+        addMassPhotos(files);
+      } else {
+        if (!state.models.length) {
+          showToast("Сначала добавь хотя бы одну модель.", "error");
+          openModelForm();
+          return;
+        }
+        openSetForm(null, state.selectedModelId);
+        setTimeout(() => addSelectedPhotos(files), 150);
+      }
+    });
 
     // Очистка памяти устройства от оригиналов (они хранятся в Google Drive)
     $("#purgeStorageBtn")?.addEventListener("click", purgeLocalOriginals);

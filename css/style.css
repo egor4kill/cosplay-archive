@@ -2657,4 +2657,154 @@ a.button {
   opacity: 0.85;
 }
 
+/* -------------------- Плавающий оверлей прогресса (Progress HUD) -------------------- */
 
+.progress-hud {
+  position: fixed;
+  z-index: 1000;
+  bottom: 24px;
+  right: 24px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: rgba(23, 19, 31, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--accent-border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(183, 155, 255, 0.16);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.progress-hud.hidden {
+  display: none !important;
+}
+
+.progress-hud-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-hud-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--surface-hover);
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}
+
+.progress-hud-title-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.progress-hud-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-hud-subtitle {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.progress-hud-percent {
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #d1c0ff;
+  flex-shrink: 0;
+}
+
+.progress-hud-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-hud-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9b72ff, #b79bff, #d1c0ff);
+  border-radius: 999px;
+  transition: width 0.18s ease-out;
+  box-shadow: 0 0 10px rgba(183, 155, 255, 0.4);
+}
+
+@media (max-width: 600px) {
+  .progress-hud {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+}
+
+/* -------------------- Диалог пароля от архива -------------------- */
+
+.password-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-group input {
+  width: 100%;
+  padding-right: 42px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 16px;
+  color: var(--text-muted);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.password-toggle-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.dialog-error {
+  color: #ff7675;
+  font-size: 12.5px;
+  margin-top: -6px;
+  margin-bottom: 8px;
+}
+
+.dialog-error.hidden {
+  display: none !important;
+}

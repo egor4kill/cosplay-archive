@@ -30,14 +30,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=21">
 
-  <script src="js/config.js?v=20" defer></script>
-  <script src="js/providers/registry.js?v=20" defer></script>
-  <script src="js/drive.js?v=20" defer></script>
-  <script src="js/providers/dropbox.js?v=20" defer></script>
-  <script src="js/vendor/jszip.min.js?v=20" defer></script>
-  <script src="js/app.js?v=20" defer></script>
+  <script src="js/config.js?v=21" defer></script>
+  <script src="js/providers/registry.js?v=21" defer></script>
+  <script src="js/drive.js?v=21" defer></script>
+  <script src="js/providers/dropbox.js?v=21" defer></script>
+  <script src="js/vendor/jszip.min.js?v=21" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=21" defer></script>
+  <script src="js/app.js?v=21" defer></script>
 </head>
 
 <body>
@@ -526,16 +527,16 @@
         <div>
           <h3>Фотографии</h3>
           <p class="muted">
-            Можно выбрать сразу несколько изображений.
+            Выбери изображения или перетащи архив (.zip) с паролем или без.
           </p>
         </div>
 
         <label class="button button-quiet upload-button">
-          + Выбрать фотографии
+          + Выбрать фотографии или архив
           <input
             id="setPhotos"
             type="file"
-            accept="image/*"
+            accept="image/*,.zip,application/zip,application/x-zip-compressed"
             multiple
             hidden
           >
@@ -606,16 +607,16 @@
         <div>
           <h3>Фотографии</h3>
           <p class="muted">
-            Перетащи сюда сразу много изображений или выбери их.
+            Перетащи сюда фотографии или архив (.zip) с паролем или папками.
           </p>
         </div>
 
         <label class="button button-quiet upload-button">
-          + Выбрать фотографии
+          + Выбрать фотографии или архив
           <input
             id="massUploadInput"
             type="file"
-            accept="image/*"
+            accept="image/*,.zip,application/zip,application/x-zip-compressed"
             multiple
             hidden
           >
@@ -643,6 +644,71 @@
 
   <!-- Полноэкранный просмотр фотографии -->
   <dialog id="photoDialog" class="photo-lightbox"></dialog>
+
+  <!-- Диалог ввода пароля от архива -->
+  <dialog class="dialog" id="archivePasswordDialog">
+    <form class="dialog-content" id="archivePasswordForm">
+      <div class="dialog-heading">
+        <h2>Архив защищён паролем</h2>
+        <p class="muted" id="archivePasswordSub">
+          Файл содержит зашифрованные фотографии. Введи пароль для распаковки:
+        </p>
+      </div>
+
+      <label for="archivePasswordInput">
+        Пароль
+        <div class="password-input-group">
+          <input
+            id="archivePasswordInput"
+            type="password"
+            placeholder="Введи пароль от архива"
+            autocomplete="current-password"
+            required
+          >
+          <button
+            class="button button-quiet password-toggle-btn"
+            id="archivePasswordToggle"
+            type="button"
+            title="Показать пароль"
+            aria-label="Показать пароль"
+          >👁</button>
+        </div>
+      </label>
+
+      <p class="dialog-error hidden" id="archivePasswordError">
+        Неверный пароль. Попробуй ещё раз.
+      </p>
+
+      <div class="dialog-actions">
+        <button
+          class="button button-quiet"
+          id="archivePasswordCancel"
+          type="button"
+        >
+          Отмена
+        </button>
+
+        <button class="button button-primary" type="submit">
+          Распаковать
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Плавающий оверлей прогресса (HUD) -->
+  <div class="progress-hud hidden" id="progressHud" role="status" aria-live="polite">
+    <div class="progress-hud-header">
+      <span class="progress-hud-icon" id="progressHudIcon">⚡</span>
+      <div class="progress-hud-title-wrap">
+        <span class="progress-hud-title" id="progressHudTitle">Загрузка в облако</span>
+        <span class="progress-hud-subtitle" id="progressHudSubtitle">Подготовка…</span>
+      </div>
+      <span class="progress-hud-percent" id="progressHudPercent">0%</span>
+    </div>
+    <div class="progress-hud-track">
+      <div class="progress-hud-fill" id="progressHudFill" style="width: 0%"></div>
+    </div>
+  </div>
 
   <!-- Уведомления -->
   <div
