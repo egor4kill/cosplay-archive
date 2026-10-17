@@ -2273,6 +2273,16 @@
 
     const previous = getModel(id);
 
+    // Если меняется только обложка (а имя, ссылки, заметки и теги не менялись),
+    // не обновляем дату изменения updatedAt, чтобы модель не вылетала в начало списка!
+    const isCoverOnlyChange = previous && (
+      previous.name === name &&
+      (previous.slug || "") === slug &&
+      (previous.url || "") === url &&
+      (previous.notes || "").trim() === $("#modelNotes").value.trim() &&
+      JSON.stringify(previous.tags || []) === JSON.stringify(parseTags($("#modelTags").value))
+    );
+
     const model = {
       id,
       name,
@@ -2282,7 +2292,9 @@
       notes: $("#modelNotes").value.trim(),
       coverPhotoId: state.draftModelCoverPhotoId || null,
       createdAt: previous?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: isCoverOnlyChange
+        ? (previous.updatedAt || previous.createdAt || new Date().toISOString())
+        : new Date().toISOString()
     };
 
     setBusy(true, "Сохранение модели…");
@@ -2370,7 +2382,7 @@
     $("#setCharacter").value = set?.character || "";
     $("#setTitle").value = set?.title || "";
     $("#setRating").value = set?.rating || "";
-    $("#setDate").value = set?.date || today();
+    $("#setDate").value = set ? (set.date || "") : today();
     $("#setTags").value = (set?.tags || []).join(", ");
     $("#setDescription").value = set?.description || "";
     updateSetTagSuggestions?.();
@@ -3221,6 +3233,37 @@
 
     const ratingValue = Number($("#setRating").value || 0);
 
+    // Проверяем, изменилась ли только обложка (а персонаж, название, рейтинг, заметки, теги и состав фото не менялись)
+    const isCoverOnlyChange = previous && (
+      previous.modelId === modelId &&
+      previous.character === character &&
+      (previous.title || "").trim() === $("#setTitle").value.trim() &&
+      Number(previous.rating || 0) === Number(ratingValue || 0) &&
+      (previous.description || "").trim() === $("#setDescription").value.trim() &&
+      JSON.stringify(previous.tags || []) === JSON.stringify(parseTags($("#setTags").value)) &&
+      state.draftRemovedPhotoIds.size === 0 &&
+      (
+        // Случай 1: фотографии не менялись (только выбрали другое фото сета как обложку)
+        (state.draftNewPhotos.length === 0 &&
+         (previous.photoIds || []).length === keptPhotoIds.length &&
+         (previous.photoIds || []).every((pid, idx) => pid === keptPhotoIds[idx])) ||
+        // Случай 2: была загружена ровно одна обложка через прямую загрузку обложки
+        (state.draftNewPhotos.length === 1 && state.draftNewPhotos[0].id === coverId)
+      )
+    );
+
+    // Если меняется только обложка (или если дата не менялась пользователем),
+    // сохраняем оригинальную дату сета и не обновляем дату модификации,
+    // чтобы сет не вылетал в начало списка как "новый"!
+    const setDateValue = $("#setDate").value.trim();
+    const effectiveDate = isCoverOnlyChange
+      ? (previous.date || "")
+      : (previous ? setDateValue : (setDateValue || today()));
+
+    const effectiveUpdatedAt = isCoverOnlyChange
+      ? (previous.updatedAt || previous.createdAt || new Date().toISOString())
+      : new Date().toISOString();
+
     const setRecord = {
       id,
       modelId,
@@ -3230,14 +3273,14 @@
       rating: Number.isFinite(ratingValue)
         ? Math.max(0, Math.min(5, ratingValue))
         : 0,
-      date: $("#setDate").value || today(),
+      date: effectiveDate,
       tags: parseTags($("#setTags").value),
       description: $("#setDescription").value.trim(),
       photoIds: keptPhotoIds,
       coverPhotoId: coverId,
       favorite: Boolean(previous?.favorite),
       createdAt: previous?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: effectiveUpdatedAt
     };
 
     setBusy(true, "Сохранение сета…");
