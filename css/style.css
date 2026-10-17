@@ -165,13 +165,23 @@ a:hover {
 
 .progress-bar {
   position: fixed;
-  z-index: 120;
-  top: 0;
-  left: 0;
+  z-index: 2147483647;
+  inset: 0 0 auto 0;
+  margin: 0;
+  padding: 0;
+  border: none;
   width: 100%;
   height: 3px;
   overflow: hidden;
   background: rgba(182, 154, 255, 0.14);
+}
+
+.progress-bar:popover-open {
+  display: block;
+}
+
+.progress-bar.hidden {
+  display: none !important;
 }
 
 .progress-bar span {
@@ -2914,16 +2924,16 @@ a.button {
 
 .progress-hud {
   position: fixed;
-  z-index: 1000;
-  bottom: 24px;
-  right: 24px;
+  z-index: 2147483647;
+  inset: auto 24px 76px auto;
+  margin: 0;
   width: 360px;
   max-width: calc(100vw - 32px);
-  background: rgba(23, 19, 31, 0.94);
+  background: rgba(23, 19, 31, 0.95);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--accent-border);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(183, 155, 255, 0.16);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 24px rgba(183, 155, 255, 0.2);
   border-radius: 14px;
   padding: 14px 16px;
   display: flex;
@@ -2931,6 +2941,11 @@ a.button {
   gap: 10px;
   pointer-events: auto;
   transition: opacity 0.25s ease, transform 0.25s ease;
+  color: var(--text);
+}
+
+.progress-hud:popover-open {
+  display: flex;
 }
 
 .progress-hud.hidden {
@@ -3008,11 +3023,111 @@ a.button {
 
 @media (max-width: 600px) {
   .progress-hud {
-    bottom: 16px;
-    right: 16px;
-    left: 16px;
+    inset: auto 16px 72px 16px;
+    margin: 0;
     width: auto;
   }
+}
+
+/* -------------------- Индикатор прогресса внутри модальных окон -------------------- */
+
+.dialog-upload-progress {
+  width: 100%;
+  background: rgba(155, 114, 255, 0.08);
+  border: 1px solid rgba(183, 155, 255, 0.28);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 6px 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25), inset 0 0 12px rgba(183, 155, 255, 0.05);
+  animation: upload-progress-fadein 0.2s ease-out;
+  box-sizing: border-box;
+}
+
+.dialog-upload-progress.hidden {
+  display: none !important;
+}
+
+@keyframes upload-progress-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dialog-upload-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-upload-icon {
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(183, 155, 255, 0.15);
+  border: 1px solid rgba(183, 155, 255, 0.3);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.dialog-upload-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.dialog-upload-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dialog-upload-subtitle {
+  font-size: 11.5px;
+  color: #b7a9d6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.dialog-upload-percent {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #d1c0ff;
+  flex-shrink: 0;
+}
+
+.dialog-upload-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.dialog-upload-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9b72ff, #b79bff, #d1c0ff);
+  border-radius: 999px;
+  transition: width 0.15s ease-out;
+  box-shadow: 0 0 8px rgba(183, 155, 255, 0.5);
 }
 
 /* -------------------- Диалог пароля от архива -------------------- */

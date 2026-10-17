@@ -424,6 +424,11 @@
     clearTimeout(showToast.timer);
     showToast.timer = setTimeout(() => {
       toast.classList.add("hidden");
+      if (typeof toast.hidePopover === "function") {
+        try {
+          if (toast.matches(":popover-open")) toast.hidePopover();
+        } catch {}
+      }
     }, 3500);
   }
 
@@ -452,61 +457,143 @@
     clearTimeout(showProgress.timer);
     showProgress.timer = setTimeout(() => {
       bar.classList.remove("hidden");
+      if (typeof bar.showPopover === "function") {
+        try {
+          if (!bar.matches(":popover-open")) bar.showPopover();
+        } catch {}
+      }
     }, 300);
   }
 
   function hideProgress() {
     clearTimeout(showProgress.timer);
-    $("#progressBar")?.classList.add("hidden");
+    const bar = $("#progressBar");
+    if (bar) {
+      bar.classList.add("hidden");
+      if (typeof bar.hidePopover === "function") {
+        try {
+          if (bar.matches(":popover-open")) bar.hidePopover();
+        } catch {}
+      }
+    }
   }
 
-  /* -------------------- Плавающий оверлей прогресса (HUD) -------------------- */
+  /* -------------------- Плавающий оверлей прогресса (HUD) и прогресс в диалогах -------------------- */
 
   let hudHideTimer = null;
+
+  function getActiveUploadProgressPrefix() {
+    const setDialog = $("#setDialog");
+    if (setDialog && setDialog.open) return "set";
+    const massDialog = $("#massUploadDialog");
+    if (massDialog && massDialog.open) return "mass";
+    return null;
+  }
 
   function showHUD({ title = "Загрузка…", subtitle = "", percent = 0, current = null, total = null, icon = "⚡" } = {}) {
     clearTimeout(hudHideTimer);
     const hud = $("#progressHud");
-    if (!hud) return;
+    if (hud) {
+      const titleEl = $("#progressHudTitle");
+      const iconEl = $("#progressHudIcon");
+      if (titleEl) titleEl.textContent = title;
+      if (iconEl) iconEl.textContent = icon;
 
-    const titleEl = $("#progressHudTitle");
-    const iconEl = $("#progressHudIcon");
-    if (titleEl) titleEl.textContent = title;
-    if (iconEl) iconEl.textContent = icon;
+      hud.classList.remove("hidden");
+
+      if (typeof hud.showPopover === "function") {
+        try {
+          if (!hud.matches(":popover-open")) hud.showPopover();
+        } catch {
+          /* игнорируем */
+        }
+      }
+    }
+
+    // Также обновляем инлайн-прогресс в активном модальном окне
+    const prefix = getActiveUploadProgressPrefix();
+    if (prefix) {
+      const inlineBox = $(`#${prefix}UploadProgress`);
+      if (inlineBox) {
+        const inTitle = $(`#${prefix}UploadTitle`);
+        const inIcon = $(`#${prefix}UploadIcon`);
+        if (inTitle) inTitle.textContent = title;
+        if (inIcon) inIcon.textContent = icon;
+        inlineBox.classList.remove("hidden");
+      }
+    }
 
     updateHUD({ subtitle, percent, current, total });
-    hud.classList.remove("hidden");
   }
 
   function updateHUD({ subtitle = null, percent = null, current = null, total = null } = {}) {
-    const hud = $("#progressHud");
-    if (!hud || hud.classList.contains("hidden")) return;
-
-    const fillEl = $("#progressHudFill");
-    const pctEl = $("#progressHudPercent");
-    const subEl = $("#progressHudSubtitle");
-
+    let pct = null;
     if (current != null && total != null && total > 0) {
-      const pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
-      if (fillEl) fillEl.style.width = `${pct}%`;
-      if (pctEl) pctEl.textContent = `${pct}%`;
+      pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
     } else if (percent != null) {
-      const pct = Math.min(100, Math.max(0, Math.round(percent)));
-      if (fillEl) fillEl.style.width = `${pct}%`;
-      if (pctEl) pctEl.textContent = `${pct}%`;
+      pct = Math.min(100, Math.max(0, Math.round(percent)));
     }
 
-    if (subtitle != null && subEl) {
-      subEl.textContent = subtitle;
+    // Обновление плавающего HUD
+    const hud = $("#progressHud");
+    if (hud && !hud.classList.contains("hidden")) {
+      const fillEl = $("#progressHudFill");
+      const pctEl = $("#progressHudPercent");
+      const subEl = $("#progressHudSubtitle");
+
+      if (pct != null) {
+        if (fillEl) fillEl.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+      }
+
+      if (subtitle != null && subEl) {
+        subEl.textContent = subtitle;
+      }
+    }
+
+    // Обновление инлайн-прогресса в открытом окне
+    const prefix = getActiveUploadProgressPrefix();
+    if (prefix) {
+      const inlineBox = $(`#${prefix}UploadProgress`);
+      if (inlineBox && !inlineBox.classList.contains("hidden")) {
+        const inFill = $(`#${prefix}UploadFill`);
+        const inPct = $(`#${prefix}UploadPercent`);
+        const inSub = $(`#${prefix}UploadSubtitle`);
+
+        if (pct != null) {
+          if (inFill) inFill.style.width = `${pct}%`;
+          if (inPct) inPct.textContent = `${pct}%`;
+        }
+
+        if (subtitle != null && inSub) {
+          inSub.textContent = subtitle;
+        }
+      }
     }
   }
 
   function hideHUD(delay = 600) {
     clearTimeout(hudHideTimer);
-    hudHideTimer = setTimeout(() => {
+    const doHide = () => {
       const hud = $("#progressHud");
-      if (hud) hud.classList.add("hidden");
-    }, delay);
+      if (hud) {
+        hud.classList.add("hidden");
+        if (typeof hud.hidePopover === "function") {
+          try {
+            if (hud.matches(":popover-open")) hud.hidePopover();
+          } catch {}
+        }
+      }
+
+      $("#setUploadProgress")?.classList.add("hidden");
+      $("#massUploadProgress")?.classList.add("hidden");
+    };
+
+    if (delay <= 0) {
+      doHide();
+    } else {
+      hudHideTimer = setTimeout(doHide, delay);
+    }
   }
 
   /* -------------------- Извлечение ZIP-архивов с поддержкой паролей -------------------- */
@@ -770,6 +857,13 @@
 
   function closeDialog(dialog) {
     if (!dialog) return;
+
+    if (dialog.id === "setDialog") {
+      $("#setUploadProgress")?.classList.add("hidden");
+    }
+    if (dialog.id === "massUploadDialog") {
+      $("#massUploadProgress")?.classList.add("hidden");
+    }
 
     if (dialog.id === "photoDialog") {
       window.removeEventListener("resize", handleLightboxWindowResize);
@@ -2364,6 +2458,8 @@
 
     form.reset();
 
+    $("#setUploadProgress")?.classList.add("hidden");
+
     state.draftNewPhotos = [];
     state.draftRemovedPhotoIds = new Set();
     state.draftSelectedPhotoIds = new Set();
@@ -2881,6 +2977,7 @@
     releaseMassUploadURLs();
     state.massUploadPhotos = [];
     state.massUploadTargetSetId = null;
+    $("#massUploadProgress")?.classList.add("hidden");
     renderMassThumbs();
     updateMassUploadStatus();
   }
@@ -3130,6 +3227,12 @@
     };
 
     setBusy(true, "Загрузка фотографий…");
+    showHUD({
+      title: "Сохранение сета",
+      subtitle: `Запись ${newPhotos.length} фото в базу данных…`,
+      percent: 85,
+      icon: "💾"
+    });
 
     try {
       await db.saveSetWithPhotos(setRecord, newPhotos, []);
@@ -3140,12 +3243,21 @@
       await refreshData();
       renderAll();
 
+      showHUD({
+        title: "Готово",
+        subtitle: `Успешно сохранено ${newPhotos.length} фото.`,
+        percent: 100,
+        icon: "✓"
+      });
+      hideHUD(1200);
+
       showToast(`Загружено фотографий: ${newPhotos.length}`, "success");
       scheduleAutoSync();
 
       navigate("set-detail", setRecord.id);
     } catch (error) {
       console.error(error);
+      hideHUD(0);
       showToast("Не удалось загрузить фотографии.", "error");
     } finally {
       setBusy(false);
@@ -3284,6 +3396,14 @@
     };
 
     setBusy(true, "Сохранение сета…");
+    if (newPhotos.length > 0) {
+      showHUD({
+        title: "Сохранение сета",
+        subtitle: `Запись ${newPhotos.length} фото в базу данных…`,
+        percent: 85,
+        icon: "💾"
+      });
+    }
 
     try {
       await db.saveSetWithPhotos(
@@ -3303,10 +3423,21 @@
       closeDialog($("#setDialog"));
       renderAll();
 
+      if (newPhotos.length > 0) {
+        showHUD({
+          title: "Готово",
+          subtitle: `Сет и ${newPhotos.length} фото сохранены.`,
+          percent: 100,
+          icon: "✓"
+        });
+        hideHUD(1200);
+      }
+
       showToast(previous ? "Сет обновлён." : "Сет добавлен.", "success");
       scheduleAutoSync();
     } catch (error) {
       console.error(error);
+      hideHUD(0);
       showToast(
         "Не удалось сохранить сет. Проверь свободное место и попробуй снова.",
         "error"

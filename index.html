@@ -30,15 +30,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=27">
+  <link rel="stylesheet" href="css/style.css?v=28">
 
-  <script src="js/config.js?v=27" defer></script>
-  <script src="js/providers/registry.js?v=27" defer></script>
-  <script src="js/drive.js?v=27" defer></script>
-  <script src="js/providers/dropbox.js?v=27" defer></script>
-  <script src="js/vendor/jszip.min.js?v=27" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=27" defer></script>
-  <script src="js/app.js?v=27" defer></script>
+  <script src="js/config.js?v=28" defer></script>
+  <script src="js/providers/registry.js?v=28" defer></script>
+  <script src="js/drive.js?v=28" defer></script>
+  <script src="js/providers/dropbox.js?v=28" defer></script>
+  <script src="js/vendor/jszip.min.js?v=28" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=28" defer></script>
+  <script src="js/app.js?v=28" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -47,6 +47,7 @@
     id="progressBar"
     role="progressbar"
     aria-label="Идёт операция"
+    popover="manual"
   >
     <span></span>
   </div>
@@ -601,6 +602,21 @@
           >
         </label>
 
+        <!-- Индикатор прогресса обработки фото/архива внутри окна -->
+        <div class="dialog-upload-progress hidden" id="setUploadProgress" role="status" aria-live="polite">
+          <div class="dialog-upload-progress-header">
+            <span class="dialog-upload-icon" id="setUploadIcon">⚡</span>
+            <div class="dialog-upload-text">
+              <span class="dialog-upload-title" id="setUploadTitle">Обработка фотографий</span>
+              <span class="dialog-upload-subtitle" id="setUploadSubtitle">Подготовка…</span>
+            </div>
+            <span class="dialog-upload-percent" id="setUploadPercent">0%</span>
+          </div>
+          <div class="dialog-upload-track">
+            <div class="dialog-upload-fill" id="setUploadFill" style="width: 0%"></div>
+          </div>
+        </div>
+
         <div class="photo-manager-toolbar" id="photoManagerToolbar">
           <div class="photo-manager-stats">
             <span class="photo-counter-badge" id="photoCountBadge">0 фото</span>
@@ -699,6 +715,21 @@
           >
         </label>
 
+        <!-- Индикатор прогресса обработки фото/архива внутри окна -->
+        <div class="dialog-upload-progress hidden" id="massUploadProgress" role="status" aria-live="polite">
+          <div class="dialog-upload-progress-header">
+            <span class="dialog-upload-icon" id="massUploadIcon">⚡</span>
+            <div class="dialog-upload-text">
+              <span class="dialog-upload-title" id="massUploadTitle">Обработка фотографий</span>
+              <span class="dialog-upload-subtitle" id="massUploadSubtitle">Подготовка…</span>
+            </div>
+            <span class="dialog-upload-percent" id="massUploadPercent">0%</span>
+          </div>
+          <div class="dialog-upload-track">
+            <div class="dialog-upload-fill" id="massUploadFill" style="width: 0%"></div>
+          </div>
+        </div>
+
         <div class="photo-manager" id="massUploadThumbs"></div>
         <p class="muted small" id="massUploadStatus"></p>
       </div>
@@ -773,7 +804,7 @@
   </dialog>
 
   <!-- Плавающий оверлей прогресса (HUD) -->
-  <div class="progress-hud hidden" id="progressHud" role="status" aria-live="polite">
+  <div class="progress-hud hidden" id="progressHud" role="status" aria-live="polite" popover="manual">
     <div class="progress-hud-header">
       <span class="progress-hud-icon" id="progressHudIcon">⚡</span>
       <div class="progress-hud-title-wrap">
