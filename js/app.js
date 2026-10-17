@@ -700,6 +700,10 @@
       return photo.dataURL;
     }
 
+    if (typeof photo.previewDataURL === "string" && photo.previewDataURL) {
+      return photo.previewDataURL;
+    }
+
     return "";
   }
 
@@ -3823,7 +3827,9 @@
     state.drive.syncing = true;
     state.drive.error = "";
     updateDriveUI();
-    showProgress(`Синхронизация с ${providerLabel}…`);
+    if (!silent) {
+      showProgress(`Синхронизация с ${providerLabel}…`);
+    }
 
     try {
       await drive.ensureFolders();
@@ -4731,15 +4737,7 @@
 
       initDrive();
 
-      // Если пользователь не в аккаунте (закрыл сайт и открыл заново, либо вышел):
-      // полностью очищаем локальную базу данных, чтобы на устройстве ничего не оставалось
       if (!isUserAuthenticated()) {
-        try {
-          await db.clearAll();
-          clearTombstones();
-        } catch (e) {
-          console.warn("Ошибка очистки базы данных:", e);
-        }
         state.models = [];
         state.sets = [];
         state.photos = [];
@@ -4763,6 +4761,13 @@
       // Защита от случайной очистки IndexedDB браузером (iOS Safari, Android Chrome)
       if (navigator.storage && typeof navigator.storage.persist === "function") {
         navigator.storage.persist().catch(() => {});
+      }
+
+      // Если пользователь авторизован — фоновая бесшумная синхронизация без зависаний UI
+      if (isUserAuthenticated()) {
+        setTimeout(() => {
+          syncNow({ silent: true }).catch(() => {});
+        }, 1200);
       }
 
       // Авто-синхронизация при возвращении на вкладку / разблокировке телефона

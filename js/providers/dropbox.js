@@ -34,7 +34,7 @@
 
   function loadTokens() {
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
       accessToken = data.access || "";
@@ -47,11 +47,13 @@
 
   function saveTokens() {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      const data = JSON.stringify({
         access: accessToken,
         expiresAt: tokenExpiresAt,
         refresh: refreshToken
-      }));
+      });
+      localStorage.setItem(STORAGE_KEY, data);
+      sessionStorage.setItem(STORAGE_KEY, data);
     } catch {
       /* ignore */
     }
