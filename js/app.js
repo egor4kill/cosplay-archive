@@ -3226,40 +3226,6 @@
     showToast(`Скачиваю фотографий: ${photos.length}…`);
   }
 
-  async function quickSetCover(setId, photoId) {
-    const set = getSet(setId);
-    if (!set || !photoId) return;
-
-    set.coverPhotoId = photoId;
-    try {
-      await db.put(CONFIG.stores.sets, set);
-      await refreshData();
-      renderAll();
-      showToast("Фото назначено обложкой сета ★", "success");
-      scheduleAutoSync();
-    } catch (err) {
-      console.error(err);
-      showToast("Не удалось установить обложку сета.", "error");
-    }
-  }
-
-  async function quickModelCover(modelId, photoId) {
-    const model = getModel(modelId);
-    if (!model || !photoId) return;
-
-    model.coverPhotoId = photoId;
-    try {
-      await db.put(CONFIG.stores.models, model);
-      await refreshData();
-      renderAll();
-      showToast(`Фото назначено обложкой модели «${model.name}» 👑`, "success");
-      scheduleAutoSync();
-    } catch (err) {
-      console.error(err);
-      showToast("Не удалось установить обложку модели.", "error");
-    }
-  }
-
   function renderSetDetail() {
     const root = $("#setDetailBody");
     if (!root) return;
@@ -3360,37 +3326,14 @@
 
       ${photos.length
         ? `<div class="photo-gallery set-detail-gallery">
-            ${photos.map((photo, photoIndex) => {
-              const isSetCover = photo.id === set.coverPhotoId;
-              const isModelCover = photo.id === model?.coverPhotoId;
-              return `
-                <div class="gallery-card ${isSetCover ? "is-set-cover" : ""}">
-                  <button type="button" class="gallery-photo-btn" data-action="lightbox"
-                    data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
-                     <img src="${photoURL(photo, "preview")}"
-                       alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
-                       loading="lazy">
-                  </button>
-                  <div class="gallery-card-badges">
-                    ${isSetCover ? '<span class="badge-cover set-badge" title="Обложка этого сета">★ Сет</span>' : ""}
-                    ${isModelCover ? '<span class="badge-cover model-badge" title="Обложка модели">👑 Модель</span>' : ""}
-                  </div>
-                  <div class="gallery-card-actions">
-                    <button type="button" class="gallery-action-btn" data-action="quick-set-cover"
-                      data-set-id="${escapeHTML(set.id)}" data-photo-id="${escapeHTML(photo.id)}"
-                      title="Сделать обложкой сета">
-                      ★ Сет
-                    </button>
-                    ${model ? `
-                    <button type="button" class="gallery-action-btn" data-action="quick-model-cover"
-                      data-model-id="${escapeHTML(model.id)}" data-photo-id="${escapeHTML(photo.id)}"
-                      title="Сделать обложкой модели «${escapeHTML(model.name)}»">
-                      👑 Модель
-                    </button>` : ""}
-                  </div>
-                </div>
-              `;
-            }).join("")}
+            ${photos.map((photo, photoIndex) => `
+              <button type="button" data-action="lightbox"
+                data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
+                 <img src="${photoURL(photo, "preview")}"
+                   alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
+                   loading="lazy">
+              </button>
+            `).join("")}
           </div>`
         : `<div class="empty-state">
              <h2>В этом сете пока нет фотографий</h2>
@@ -3459,10 +3402,6 @@
         data-action="next-photo" aria-label="Следующее фото">›</button>
       <span class="lightbox-counter" id="lightboxCounter"></span>
       <div class="lightbox-toolbar" role="toolbar" aria-label="Масштаб">
-        <button type="button" data-action="lightbox-set-cover"
-          aria-label="Сделать обложкой сета" title="Сделать обложкой этого сета (★)">★ Сет</button>
-        <button type="button" data-action="lightbox-model-cover"
-          aria-label="Сделать обложкой модели" title="Сделать обложкой модели (👑)">👑 Модель</button>
         <button type="button" data-action="zoom-out"
           aria-label="Уменьшить" title="Уменьшить (−)">−</button>
         <button type="button" data-action="zoom-reset" id="lightboxZoomLabel"
@@ -4894,36 +4833,6 @@
         state.draftCoverPhotoId = id;
         renderDraftPhotos();
         break;
-
-      case "quick-set-cover": {
-        const setId = element.dataset.setId || state.viewedSetId;
-        const photoId = element.dataset.photoId;
-        quickSetCover(setId, photoId);
-        break;
-      }
-
-      case "quick-model-cover": {
-        const modelId = element.dataset.modelId || state.selectedModelId;
-        const photoId = element.dataset.photoId;
-        quickModelCover(modelId, photoId);
-        break;
-      }
-
-      case "lightbox-set-cover": {
-        const currentPhoto = state.lightboxPhotos[state.lightboxIndex];
-        if (state.viewedSetId && currentPhoto) {
-          quickSetCover(state.viewedSetId, currentPhoto.id);
-        }
-        break;
-      }
-
-      case "lightbox-model-cover": {
-        const currentPhoto = state.lightboxPhotos[state.lightboxIndex];
-        if (state.selectedModelId && currentPhoto) {
-          quickModelCover(state.selectedModelId, currentPhoto.id);
-        }
-        break;
-      }
 
       case "select-model-cover-photo": {
         state.draftModelCoverPhotoId = id;
