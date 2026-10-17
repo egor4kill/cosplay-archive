@@ -29,8 +29,8 @@
       storeOriginal: false,
       maxDimension: 3200,
       quality: 0.90,
-      previewMaxDimension: 480,
-      previewQuality: 0.82,
+      previewMaxDimension: 960,
+      previewQuality: 0.88,
       outputType: "image/webp"
     },
     backup: {
@@ -380,6 +380,8 @@
     draftNewPhotos: [],
     draftRemovedPhotoIds: new Set(),
     draftCoverPhotoId: null,
+    draftModelCoverPhotoId: null,
+    privacyActive: false,
     massUploadPhotos: [],
     massUploadObjectURLs: new Map(),
     massUploadTargetSetId: null,
@@ -968,15 +970,37 @@
   function photoURL(photo, variant = "full") {
     if (!photo || !isUserAuthenticated()) return "";
 
-    const previewBlob = variant === "preview" && photo.preview instanceof Blob
-      ? photo.preview
-      : null;
+    let blob = null;
+    let isPreview = false;
 
-    const blob = previewBlob
-      || (photo.blob instanceof Blob ? photo.blob : null);
+    if (variant === "preview") {
+      if (photo.preview instanceof Blob) {
+        blob = photo.preview;
+        isPreview = true;
+      } else if (photo.blob instanceof Blob) {
+        blob = photo.blob;
+      }
+    } else if (variant === "cover") {
+      // Для обложек: отдаём приоритет оригинальному качеству photo.blob (Ultra-HD WebP)!
+      // Если оригинала на устройстве нет (ещё не скачан из облака), отдаём preview.
+      if (photo.blob instanceof Blob) {
+        blob = photo.blob;
+      } else if (photo.preview instanceof Blob) {
+        blob = photo.preview;
+        isPreview = true;
+      }
+    } else {
+      // "full"
+      if (photo.blob instanceof Blob) {
+        blob = photo.blob;
+      } else if (photo.preview instanceof Blob) {
+        blob = photo.preview;
+        isPreview = true;
+      }
+    }
 
     if (blob) {
-      const key = previewBlob ? `${photo.id}:preview` : photo.id;
+      const key = isPreview ? `${photo.id}:preview` : `${photo.id}:full`;
 
       if (!state.objectURLs.has(key)) {
         state.objectURLs.set(key, URL.createObjectURL(blob));
@@ -1109,6 +1133,12 @@
   }
 
   function getModelCover(modelId) {
+    const model = getModel(modelId);
+    if (model?.coverPhotoId) {
+      const explicitCover = getSavedPhoto(model.coverPhotoId);
+      if (explicitCover) return explicitCover;
+    }
+
     const sets = state.sets
       .filter(set => set.modelId === modelId)
       .sort((a, b) => String(b.date || b.createdAt || "").localeCompare(
@@ -1219,7 +1249,7 @@
     const setsCount = countModelSets(model.id);
     const tags = model.tags || [];
     const cover = getModelCover(model.id);
-    const coverURL = cover ? photoURL(cover, "preview") : "";
+    const coverURL = cover ? photoURL(cover, "cover") : "";
 
     return `
       <article class="archive-card model-card" data-model-id="${escapeHTML(model.id)}"
@@ -1260,7 +1290,7 @@
     const cover = getCover(set);
     const tags = set.tags || [];
     const rating = Number(set.rating || 0);
-    const image = cover ? photoURL(cover, "preview") : "";
+    const image = cover ? photoURL(cover, "cover") : "";
     const photoCount = getSetPhotos(set).length;
 
     return `
@@ -1597,11 +1627,12 @@
     if (header) {
       const setsCount = countModelSets(model.id);
       const cover = getModelCover(model.id);
+      const coverURL = cover ? photoURL(cover, "cover") : "";
 
       header.innerHTML = `
         <div class="model-detail-hero">
-          <div class="model-avatar">${cover
-            ? `<img src="${photoURL(cover, "preview")}" alt="${escapeHTML(model.name)}">`
+          <div class="model-avatar">${coverURL
+            ? `<img src="${coverURL}" alt="${escapeHTML(model.name)}">`
             : escapeHTML(getModelInitial(model))}</div>
           <div class="hero-content">
             <p class="eyebrow">Модель</p>
@@ -1723,6 +1754,29 @@
     updateSetTagSuggestions?.();
   }
 
+  /* -------------------- Режим приватности (Размытие) -------------------- */
+
+  function setPrivacy(active) {
+    if (!isUserAuthenticated()) {
+      document.body.classList.remove("privacy-active");
+      state.privacyActive = false;
+      return;
+    }
+
+    state.privacyActive = Boolean(active);
+    document.body.classList.toggle("privacy-active", state.privacyActive);
+
+    const toggleBtn = $("#privacyToggleBtn");
+    if (toggleBtn) {
+      toggleBtn.innerHTML = state.privacyActive ? "👁️ Открыть" : "👁️ Скрыть";
+      toggleBtn.title = state.privacyActive ? "Показать контент" : "Скрыть / Размыть контент (Esc)";
+    }
+  }
+
+  function togglePrivacy() {
+    setPrivacy(!state.privacyActive);
+  }
+
   function updateNavigation() {
     const auth = isUserAuthenticated();
     const gate = $("#authGate");
@@ -1733,10 +1787,16 @@
     // Скрываем навигацию и кнопки добавления, пока пользователь не вошёл в аккаунт
     const addBtn = $("#addMainBtn");
     const randBtn = $("#randomSetBtn");
+    const privBtn = $("#privacyToggleBtn");
     const mainNav = $(".main-nav");
     if (addBtn) addBtn.style.display = auth ? "" : "none";
     if (randBtn) randBtn.style.display = auth ? "" : "none";
+    if (privBtn) privBtn.style.display = auth ? "" : "none";
     if (mainNav) mainNav.style.display = auth ? "" : "none";
+
+    if (!auth) {
+      setPrivacy(false);
+    }
 
     $$("[data-page]").forEach(button => {
       const active = button.dataset.page === state.page
@@ -1966,6 +2026,92 @@
     }
   }
 
+  function updateModelCoverUI(model = null) {
+    const previewEl = $("#modelCoverPreview");
+    const statusEl = $("#modelCoverStatus");
+    if (!previewEl || !statusEl) return;
+
+    const draftPhotoId = state.draftModelCoverPhotoId;
+    if (draftPhotoId) {
+      const photo = getSavedPhoto(draftPhotoId);
+      if (photo) {
+        previewEl.innerHTML = `<img src="${photoURL(photo, "cover")}" alt="Обложка">`;
+        statusEl.textContent = "Обложка выбрана вручную";
+        return;
+      }
+    }
+
+    const autoCover = model ? getModelCover(model.id) : null;
+    if (autoCover) {
+      previewEl.innerHTML = `<img src="${photoURL(autoCover, "cover")}" alt="Обложка">`;
+      statusEl.textContent = "Автоматически из сета модели";
+    } else {
+      const name = $("#modelName")?.value || model?.name || "?";
+      previewEl.innerHTML = `<span>${escapeHTML(name.trim().charAt(0).toUpperCase() || "?")}</span>`;
+      statusEl.textContent = "Обложка пока не выбрана";
+    }
+  }
+
+  function renderModelSetGallery(model) {
+    const galleryEl = $("#modelCoverSetGallery");
+    if (!galleryEl) return;
+
+    if (!model) {
+      galleryEl.innerHTML = '<p class="muted small" style="padding: 8px;">Сначала сохрани модель и добавь сеты с фото.</p>';
+      galleryEl.classList.remove("hidden");
+      return;
+    }
+
+    const modelSets = state.sets.filter(s => s.modelId === model.id);
+    const photos = modelSets.flatMap(s => getSetPhotos(s));
+
+    if (!photos.length) {
+      galleryEl.innerHTML = '<p class="muted small" style="padding: 8px;">В сетах этой модели пока нет фото. Загрузи файл кнопкой «📁 Загрузить файл».</p>';
+      galleryEl.classList.remove("hidden");
+      return;
+    }
+
+    galleryEl.innerHTML = photos.map(p => {
+      const isSelected = p.id === state.draftModelCoverPhotoId;
+      return `
+        <button type="button" class="model-cover-thumb-btn ${isSelected ? "is-active" : ""}"
+          data-action="select-model-cover-photo" data-id="${escapeHTML(p.id)}"
+          title="Выбрать это фото">
+          <img src="${photoURL(p, "preview")}" alt="Фото">
+        </button>
+      `;
+    }).join("");
+
+    galleryEl.classList.toggle("hidden", false);
+  }
+
+  async function handleModelCoverFile(file) {
+    if (!file) return;
+    try {
+      showHUD({
+        title: "Обработка обложки",
+        subtitle: file.name,
+        percent: 50,
+        icon: "📷"
+      });
+
+      const prepared = await prepareImage(file);
+      state.photos.push(prepared);
+      await db.put(CONFIG.stores.photos, prepared);
+      state.draftModelCoverPhotoId = prepared.id;
+
+      const model = getModel($("#modelId")?.value);
+      updateModelCoverUI(model);
+
+      hideHUD(500);
+      showToast("Обложка загружена!", "success");
+    } catch (err) {
+      console.error(err);
+      hideHUD(0);
+      showToast("Не удалось обработать файл обложки.", "error");
+    }
+  }
+
   function openModelForm(model = null) {
     const form = $("#modelForm");
     if (!form) return;
@@ -1978,6 +2124,10 @@
     $("#modelTags").value = (model?.tags || []).join(", ");
     $("#modelNotes").value = model?.notes || "";
     updateModelTagSuggestions?.();
+
+    state.draftModelCoverPhotoId = model?.coverPhotoId || null;
+    $("#modelCoverSetGallery")?.classList.add("hidden");
+    updateModelCoverUI(model);
 
     const slugInput = $("#modelSlug");
     if (slugInput) {
@@ -2040,6 +2190,7 @@
       url,
       tags: parseTags($("#modelTags").value),
       notes: $("#modelNotes").value.trim(),
+      coverPhotoId: state.draftModelCoverPhotoId || null,
       createdAt: previous?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -3061,6 +3212,40 @@
     showToast(`Скачиваю фотографий: ${photos.length}…`);
   }
 
+  async function quickSetCover(setId, photoId) {
+    const set = getSet(setId);
+    if (!set || !photoId) return;
+
+    set.coverPhotoId = photoId;
+    try {
+      await db.put(CONFIG.stores.sets, set);
+      await refreshData();
+      renderAll();
+      showToast("Фото назначено обложкой сета ★", "success");
+      scheduleAutoSync();
+    } catch (err) {
+      console.error(err);
+      showToast("Не удалось установить обложку сета.", "error");
+    }
+  }
+
+  async function quickModelCover(modelId, photoId) {
+    const model = getModel(modelId);
+    if (!model || !photoId) return;
+
+    model.coverPhotoId = photoId;
+    try {
+      await db.put(CONFIG.stores.models, model);
+      await refreshData();
+      renderAll();
+      showToast(`Фото назначено обложкой модели «${model.name}» 👑`, "success");
+      scheduleAutoSync();
+    } catch (err) {
+      console.error(err);
+      showToast("Не удалось установить обложку модели.", "error");
+    }
+  }
+
   function renderSetDetail() {
     const root = $("#setDetailBody");
     if (!root) return;
@@ -3161,14 +3346,37 @@
 
       ${photos.length
         ? `<div class="photo-gallery set-detail-gallery">
-            ${photos.map((photo, photoIndex) => `
-              <button type="button" data-action="lightbox"
-                data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
-                 <img src="${photoURL(photo, "preview")}"
-                   alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
-                   loading="lazy">
-              </button>
-            `).join("")}
+            ${photos.map((photo, photoIndex) => {
+              const isSetCover = photo.id === set.coverPhotoId;
+              const isModelCover = photo.id === model?.coverPhotoId;
+              return `
+                <div class="gallery-card ${isSetCover ? "is-set-cover" : ""}">
+                  <button type="button" class="gallery-photo-btn" data-action="lightbox"
+                    data-index="${photoIndex}" aria-label="Открыть фото ${photoIndex + 1}">
+                     <img src="${photoURL(photo, "preview")}"
+                       alt="${escapeHTML(set.character)} — фото ${photoIndex + 1}"
+                       loading="lazy">
+                  </button>
+                  <div class="gallery-card-badges">
+                    ${isSetCover ? '<span class="badge-cover set-badge" title="Обложка этого сета">★ Сет</span>' : ""}
+                    ${isModelCover ? '<span class="badge-cover model-badge" title="Обложка модели">👑 Модель</span>' : ""}
+                  </div>
+                  <div class="gallery-card-actions">
+                    <button type="button" class="gallery-action-btn" data-action="quick-set-cover"
+                      data-set-id="${escapeHTML(set.id)}" data-photo-id="${escapeHTML(photo.id)}"
+                      title="Сделать обложкой сета">
+                      ★ Сет
+                    </button>
+                    ${model ? `
+                    <button type="button" class="gallery-action-btn" data-action="quick-model-cover"
+                      data-model-id="${escapeHTML(model.id)}" data-photo-id="${escapeHTML(photo.id)}"
+                      title="Сделать обложкой модели «${escapeHTML(model.name)}»">
+                      👑 Модель
+                    </button>` : ""}
+                  </div>
+                </div>
+              `;
+            }).join("")}
           </div>`
         : `<div class="empty-state">
              <h2>В этом сете пока нет фотографий</h2>
@@ -3237,6 +3445,10 @@
         data-action="next-photo" aria-label="Следующее фото">›</button>
       <span class="lightbox-counter" id="lightboxCounter"></span>
       <div class="lightbox-toolbar" role="toolbar" aria-label="Масштаб">
+        <button type="button" data-action="lightbox-set-cover"
+          aria-label="Сделать обложкой сета" title="Сделать обложкой этого сета (★)">★ Сет</button>
+        <button type="button" data-action="lightbox-model-cover"
+          aria-label="Сделать обложкой модели" title="Сделать обложкой модели (👑)">👑 Модель</button>
         <button type="button" data-action="zoom-out"
           aria-label="Уменьшить" title="Уменьшить (−)">−</button>
         <button type="button" data-action="zoom-reset" id="lightboxZoomLabel"
@@ -4669,6 +4881,46 @@
         renderDraftPhotos();
         break;
 
+      case "quick-set-cover": {
+        const setId = element.dataset.setId || state.viewedSetId;
+        const photoId = element.dataset.photoId;
+        quickSetCover(setId, photoId);
+        break;
+      }
+
+      case "quick-model-cover": {
+        const modelId = element.dataset.modelId || state.selectedModelId;
+        const photoId = element.dataset.photoId;
+        quickModelCover(modelId, photoId);
+        break;
+      }
+
+      case "lightbox-set-cover": {
+        const currentPhoto = state.lightboxPhotos[state.lightboxIndex];
+        if (state.viewedSetId && currentPhoto) {
+          quickSetCover(state.viewedSetId, currentPhoto.id);
+        }
+        break;
+      }
+
+      case "lightbox-model-cover": {
+        const currentPhoto = state.lightboxPhotos[state.lightboxIndex];
+        if (state.selectedModelId && currentPhoto) {
+          quickModelCover(state.selectedModelId, currentPhoto.id);
+        }
+        break;
+      }
+
+      case "select-model-cover-photo": {
+        state.draftModelCoverPhotoId = id;
+        const model = getModel($("#modelId")?.value);
+        updateModelCoverUI(model);
+        $$(".model-cover-thumb-btn").forEach(btn => {
+          btn.classList.toggle("is-active", btn.dataset.id === id);
+        });
+        break;
+      }
+
       case "lightbox": {
         const setId = state.viewedSetId;
         const index = Number(element.dataset.index || 0);
@@ -4785,6 +5037,8 @@
         input.value = slugify($("#modelName").value);
       }
       updateSlugHints();
+      const model = getModel($("#modelId")?.value);
+      updateModelCoverUI(model);
     });
 
     $("#modelSlug")?.addEventListener("input", () => {
@@ -4810,6 +5064,34 @@
 
     $("#modelForm")?.addEventListener("submit", saveModel);
     $("#setForm")?.addEventListener("submit", saveSet);
+
+    // Выбор и загрузка обложки модели в форме
+    $("#modelCoverFileInput")?.addEventListener("change", event => {
+      const file = event.target.files?.[0];
+      if (file) handleModelCoverFile(file);
+      event.target.value = "";
+    });
+
+    $("#modelCoverFromSetsBtn")?.addEventListener("click", () => {
+      const model = getModel($("#modelId")?.value);
+      renderModelSetGallery(model);
+    });
+
+    $("#modelCoverResetBtn")?.addEventListener("click", () => {
+      state.draftModelCoverPhotoId = null;
+      const model = getModel($("#modelId")?.value);
+      updateModelCoverUI(model);
+      $("#modelCoverSetGallery")?.classList.add("hidden");
+    });
+
+    // Режим приватности (размытие контента)
+    $("#privacyToggleBtn")?.addEventListener("click", togglePrivacy);
+    $("#privacyUnlockBtn")?.addEventListener("click", () => setPrivacy(false));
+    $("#privacyCurtain")?.addEventListener("click", event => {
+      if (event.target === $("#privacyCurtain") || event.target.closest("#privacyUnlockBtn")) {
+        setPrivacy(false);
+      }
+    });
 
     updateModelTagSuggestions = setupTagSuggestions(
       "#modelTags",
@@ -5105,8 +5387,16 @@
       }
 
       if (event.key === "Escape") {
+        if (state.privacyActive) {
+          event.preventDefault();
+          setPrivacy(false);
+          return;
+        }
+
         const setDialog = $("#setDialog");
         const massDialog = $("#massUploadDialog");
+        const modelDialog = $("#modelDialog");
+        const pwdDialog = $("#archivePasswordDialog");
 
         if (setDialog?.open) {
           // Не даём браузеру закрыть диалог самому — иначе пропустим подтверждение.
@@ -5121,7 +5411,26 @@
           return;
         }
 
-        closeDialog($("#modelDialog"));
+        if (modelDialog?.open) {
+          closeDialog(modelDialog);
+          return;
+        }
+
+        if (pwdDialog?.open) {
+          closeDialog(pwdDialog);
+          return;
+        }
+
+        // Если ни один диалог не открыт — нажатие Escape размывает контент (паник-кнопка)
+        if (isUserAuthenticated()) {
+          setPrivacy(true);
+        }
+      } else if (state.privacyActive && (event.code === "Space" || event.code === "Enter")) {
+        event.preventDefault();
+        setPrivacy(false);
+      } else if (!state.privacyActive && event.code === "KeyP" && !event.target.matches("input, textarea, select")) {
+        event.preventDefault();
+        togglePrivacy();
       }
     });
   }
@@ -5140,8 +5449,8 @@
     for (const photo of missing) {
       try {
         const preview = await makeImageVersion(photo.blob, {
-          maxDimension: processing.previewMaxDimension || 480,
-          quality: processing.previewQuality || 0.8,
+          maxDimension: processing.previewMaxDimension || 960,
+          quality: processing.previewQuality || 0.88,
           type: processing.outputType || "image/webp"
         });
 
@@ -5196,6 +5505,11 @@
         navigator.storage.persist().catch(() => {});
       }
 
+      // Запуск в режиме приватности: при открытии сайта контент размыт
+      if (isUserAuthenticated()) {
+        setPrivacy(true);
+      }
+
       // Если пользователь авторизован — фоновая бесшумная синхронизация без зависаний UI
       if (isUserAuthenticated()) {
         setTimeout(() => {
@@ -5203,9 +5517,14 @@
         }, 1200);
       }
 
-      // Авто-синхронизация при возвращении на вкладку / разблокировке телефона
+      // Авто-синхронизация при возвращении на вкладку / авто-размытие при сворачивании
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
+        if (document.visibilityState === "hidden") {
+          // При сворачивании или переключении вкладки — активируем размытие
+          if (isUserAuthenticated()) {
+            setPrivacy(true);
+          }
+        } else if (document.visibilityState === "visible") {
           const last = state.drive.lastSyncAt ? Date.parse(state.drive.lastSyncAt) : 0;
           if (Date.now() - last > 90000) {
             syncNow({ silent: true });

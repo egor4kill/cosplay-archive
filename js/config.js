@@ -27,8 +27,8 @@ window.COSPLAY_CONFIG = {
     storeOriginal: false,
     maxDimension: 3200,
     quality: 0.90,
-    previewMaxDimension: 480,
-    previewQuality: 0.82,
+    previewMaxDimension: 960,
+    previewQuality: 0.88,
     outputType: "image/webp"
   },
 

@@ -30,15 +30,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
 
-  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/style.css?v=22">
 
-  <script src="js/config.js?v=21" defer></script>
-  <script src="js/providers/registry.js?v=21" defer></script>
-  <script src="js/drive.js?v=21" defer></script>
-  <script src="js/providers/dropbox.js?v=21" defer></script>
-  <script src="js/vendor/jszip.min.js?v=21" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=21" defer></script>
-  <script src="js/app.js?v=21" defer></script>
+  <script src="js/config.js?v=22" defer></script>
+  <script src="js/providers/registry.js?v=22" defer></script>
+  <script src="js/drive.js?v=22" defer></script>
+  <script src="js/providers/dropbox.js?v=22" defer></script>
+  <script src="js/vendor/jszip.min.js?v=22" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=22" defer></script>
+  <script src="js/app.js?v=22" defer></script>
 </head>
 
 <body>
@@ -78,6 +78,10 @@
     </nav>
 
     <div class="top-actions">
+      <button class="button button-quiet" type="button" id="privacyToggleBtn" title="Скрыть / Размыть контент (Esc)">
+        👁️ Скрыть
+      </button>
+
       <button class="button button-quiet" type="button" id="randomSetBtn">
         Случайный сет
       </button>
@@ -395,6 +399,32 @@
           placeholder="Дополнительная информация"
         ></textarea>
       </label>
+
+      <!-- Секция обложки модели -->
+      <div class="model-cover-group">
+        <label>Обложка модели</label>
+        <div class="model-cover-picker-box">
+          <div class="model-cover-preview-circle" id="modelCoverPreview">
+            <!-- Изображение или инициал -->
+          </div>
+          <div class="model-cover-btn-col">
+            <div class="model-cover-status" id="modelCoverStatus">Автоматически из последнего сета</div>
+            <div class="model-cover-actions">
+              <label class="button button-quiet model-cover-file-label">
+                📁 Загрузить файл
+                <input type="file" id="modelCoverFileInput" accept="image/*" hidden>
+              </label>
+              <button type="button" class="button button-quiet" id="modelCoverFromSetsBtn">
+                🖼️ Выбрать из сетов
+              </button>
+              <button type="button" class="button button-quiet" id="modelCoverResetBtn" title="Вернуть автоматический выбор из сета">
+                Сбросить
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="model-cover-set-gallery hidden" id="modelCoverSetGallery"></div>
+      </div>
 
       <div class="dialog-actions">
         <button
@@ -718,5 +748,18 @@
     aria-live="polite"
     popover="manual"
   ></div>
+
+  <!-- Шторка приватности (размытие контента) -->
+  <div id="privacyCurtain" class="privacy-curtain" role="region" aria-label="Приватный режим">
+    <div class="privacy-curtain-card">
+      <div class="privacy-icon" aria-hidden="true">🛡️</div>
+      <h2>Приватный режим</h2>
+      <p>Контент скрыт для вашей приватности.</p>
+      <button class="button button-primary" type="button" id="privacyUnlockBtn">
+        👁️ Показать контент
+      </button>
+      <span class="privacy-hint">Нажми в любом месте, кнопку или Пробел / Esc</span>
+    </div>
+  </div>
 </body>
 </html>
