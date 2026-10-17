@@ -1209,6 +1209,40 @@
     state.slugCache = null;
   }
 
+  function modelActivityDate(model) {
+    if (!model) return "";
+    let latest = model.updatedAt || model.createdAt || "";
+    for (const set of state.sets) {
+      if (set.modelId === model.id) {
+        const setTime = set.updatedAt || set.createdAt || set.date || "";
+        if (setTime > latest) {
+          latest = setTime;
+        }
+      }
+    }
+    return latest;
+  }
+
+  async function touchModel(modelId) {
+    if (!modelId) return;
+    const model = getModel(modelId);
+    if (!model) return;
+    const now = new Date().toISOString();
+    const updatedModel = {
+      ...model,
+      updatedAt: now
+    };
+    try {
+      await db.put(CONFIG.stores.models, updatedModel);
+      const idx = state.models.findIndex(m => m.id === modelId);
+      if (idx !== -1) {
+        state.models[idx] = updatedModel;
+      }
+    } catch (err) {
+      console.warn("Не удалось обновить дату активности модели:", err);
+    }
+  }
+
   function sortModels(models, sort) {
     const result = [...models];
 
@@ -1220,8 +1254,8 @@
 
     if (sort === "updated") {
       return result.sort((a, b) =>
-        String(b.updatedAt || b.createdAt || "").localeCompare(
-          String(a.updatedAt || a.createdAt || "")
+        String(modelActivityDate(b)).localeCompare(
+          String(modelActivityDate(a))
         )
       );
     }
@@ -1241,6 +1275,13 @@
     const result = [...sets];
 
     switch (sort) {
+      case "updated":
+        return result.sort((a, b) =>
+          String(b.updatedAt || b.createdAt || b.date || "").localeCompare(
+            String(a.updatedAt || a.createdAt || a.date || "")
+          )
+        );
+
       case "oldest":
         return result.sort((a, b) =>
           String(a.date || a.createdAt || "").localeCompare(
@@ -1268,10 +1309,16 @@
         return result.sort(() => Math.random() - 0.5);
 
       case "newest":
-      default:
         return result.sort((a, b) =>
           String(b.date || b.createdAt || "").localeCompare(
             String(a.date || a.createdAt || "")
+          )
+        );
+
+      default:
+        return result.sort((a, b) =>
+          String(b.updatedAt || b.createdAt || b.date || "").localeCompare(
+            String(a.updatedAt || a.createdAt || a.date || "")
           )
         );
     }
@@ -1552,7 +1599,7 @@
     if (!grid) return;
 
     const query = normalize($("#modelSearch")?.value);
-    const sort = $("#modelSort")?.value || "name";
+    const sort = $("#modelSort")?.value || "updated";
 
     let models = state.models.filter(model => {
       if (!query) return true;
@@ -1734,7 +1781,7 @@
 
     const query = normalize($("#setSearch")?.value);
     const modelId = $("#setModelFilter")?.value || "";
-    const sort = $("#setSort")?.value || "newest";
+    const sort = $("#setSort")?.value || "updated";
     const favoritesOnly = Boolean($("#favoritesOnly")?.checked);
 
     let sets = state.sets.filter(set => {
@@ -1856,7 +1903,7 @@
 
     const sets = sortSets(
       state.sets.filter(set => set.modelId === model.id),
-      $("#setSort")?.value || "newest"
+      $("#setSort")?.value || "updated"
     );
 
     grid.innerHTML = sets.map(renderSetCard).join("");
@@ -2367,14 +2414,13 @@
 
     const previous = getModel(id);
 
-    // Если меняется только обложка (а имя, ссылки, заметки и теги не менялись),
-    // не обновляем дату изменения updatedAt, чтобы модель не вылетала в начало списка!
-    const isCoverOnlyChange = previous && (
+    // Если меняется только обложка и/или теги (а имя, адрес, ссылка и заметки не менялись),
+    // не обновляем дату изменения updatedAt, чтобы модель не вылетала в "недавно обновлённые"!
+    const isMinorModelChange = previous && (
       previous.name === name &&
       (previous.slug || "") === slug &&
       (previous.url || "") === url &&
-      (previous.notes || "").trim() === $("#modelNotes").value.trim() &&
-      JSON.stringify(previous.tags || []) === JSON.stringify(parseTags($("#modelTags").value))
+      (previous.notes || "").trim() === $("#modelNotes").value.trim()
     );
 
     const model = {
@@ -2386,7 +2432,7 @@
       notes: $("#modelNotes").value.trim(),
       coverPhotoId: state.draftModelCoverPhotoId || null,
       createdAt: previous?.createdAt || new Date().toISOString(),
-      updatedAt: isCoverOnlyChange
+      updatedAt: isMinorModelChange
         ? (previous.updatedAt || previous.createdAt || new Date().toISOString())
         : new Date().toISOString()
     };
@@ -3236,6 +3282,7 @@
 
     try {
       await db.saveSetWithPhotos(setRecord, newPhotos, []);
+      await touchModel(set.modelId);
 
       resetMassUploadState();
       closeDialog($("#massUploadDialog"));
@@ -3345,36 +3392,37 @@
 
     const ratingValue = Number($("#setRating").value || 0);
 
-    // Проверяем, изменилась ли только обложка (а персонаж, название, рейтинг, заметки, теги и состав фото не менялись)
-    const isCoverOnlyChange = previous && (
+    const isNewSet = !previous;
+
+    // Была ли загружена ровно одна обложка через прямую загрузку обложки
+    const isDirectCoverOnlyUpload = state.draftNewPhotos.length === 1 && state.draftNewPhotos[0].id === coverId;
+
+    // Добавляются ли новые фотографии в сет (кроме одиночной загрузки прямой обложки)?
+    const hasAddedNewPhotos = state.draftNewPhotos.length > 0 && !isDirectCoverOnlyUpload;
+
+    // Проверяем, изменились ли только обложка и/или теги (а персонаж, название, описание, рейтинг, модель не менялись и новые фото не добавлялись)
+    const isMinorSetChange = previous && !hasAddedNewPhotos && (
       previous.modelId === modelId &&
       previous.character === character &&
       (previous.title || "").trim() === $("#setTitle").value.trim() &&
       Number(previous.rating || 0) === Number(ratingValue || 0) &&
-      (previous.description || "").trim() === $("#setDescription").value.trim() &&
-      JSON.stringify(previous.tags || []) === JSON.stringify(parseTags($("#setTags").value)) &&
-      state.draftRemovedPhotoIds.size === 0 &&
-      (
-        // Случай 1: фотографии не менялись (только выбрали другое фото сета как обложку)
-        (state.draftNewPhotos.length === 0 &&
-         (previous.photoIds || []).length === keptPhotoIds.length &&
-         (previous.photoIds || []).every((pid, idx) => pid === keptPhotoIds[idx])) ||
-        // Случай 2: была загружена ровно одна обложка через прямую загрузку обложки
-        (state.draftNewPhotos.length === 1 && state.draftNewPhotos[0].id === coverId)
-      )
+      (previous.description || "").trim() === $("#setDescription").value.trim()
     );
 
-    // Если меняется только обложка (или если дата не менялась пользователем),
-    // сохраняем оригинальную дату сета и не обновляем дату модификации,
-    // чтобы сет не вылетал в начало списка как "новый"!
+    // Если это незначительное изменение (только обложка или теги):
+    // сохраняем оригинальную дату сета и дату изменения updatedAt,
+    // чтобы сет не вылетал в "недавно обновлённые"!
+    // Но если сет новый или в него добавлены новые фото — обновляем updatedAt на текущий момент!
     const setDateValue = $("#setDate").value.trim();
-    const effectiveDate = isCoverOnlyChange
+    const effectiveDate = isMinorSetChange
       ? (previous.date || "")
       : (previous ? setDateValue : (setDateValue || today()));
 
-    const effectiveUpdatedAt = isCoverOnlyChange
+    const effectiveUpdatedAt = isMinorSetChange
       ? (previous.updatedAt || previous.createdAt || new Date().toISOString())
       : new Date().toISOString();
+
+    const shouldTouchModel = isNewSet || hasAddedNewPhotos || !isMinorSetChange;
 
     const setRecord = {
       id,
@@ -3411,6 +3459,13 @@
         newPhotos,
         [...state.draftRemovedPhotoIds]
       );
+
+      if (shouldTouchModel) {
+        await touchModel(modelId);
+        if (previous && previous.modelId && previous.modelId !== modelId) {
+          await touchModel(previous.modelId);
+        }
+      }
 
       recordDeletion("photos", [...state.draftRemovedPhotoIds]);
 
