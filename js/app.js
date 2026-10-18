@@ -374,6 +374,7 @@
     route: null,
     slugCache: null,
     activeTag: "",
+    activeCharacter: "",
     lightboxPhotos: [],
     lightboxIndex: 0,
     objectURLs: new Map(),
@@ -1725,7 +1726,13 @@
             </a>
           </h3>
           <p class="card-subtitle">
-            ${escapeHTML(set.character || "Персонаж не указан")}
+            ${set.character
+              ? `<button class="card-character-link" type="button"
+                   data-action="filter-character" data-character="${escapeHTML(set.character)}"
+                   title="Искать все сеты персонажа ${escapeHTML(set.character)}">
+                   ${escapeHTML(set.character)}
+                 </button>`
+              : `Персонаж не указан`}
           </p>
           ${models.length
             ? `<div class="card-models-wrap">
@@ -1846,6 +1853,40 @@
     }
   }
 
+  function allSetCharacters() {
+    const chars = new Set();
+    for (const set of state.sets) {
+      const char = (set.character || "").trim();
+      if (char) chars.add(char);
+    }
+    return [...chars].sort((a, b) =>
+      normalize(a).localeCompare(normalize(b), "ru")
+    );
+  }
+
+  function renderCharacterFilter() {
+    const select = $("#setCharacterFilter");
+    if (!select) return;
+
+    const characters = allSetCharacters();
+    const current = state.activeCharacter || select.value || "";
+
+    select.innerHTML = `
+      <option value="">Все персонажи</option>
+      ${characters.map(char => `
+        <option value="${escapeHTML(char)}">
+          ${escapeHTML(char)}
+        </option>
+      `).join("")}
+    `;
+
+    if (characters.includes(current)) {
+      select.value = current;
+    } else {
+      select.value = "";
+    }
+  }
+
   function allSetTags() {
     const tags = new Set();
 
@@ -1868,10 +1909,16 @@
     const tags = allSetTags();
     const activeClean = state.activeTag ? state.activeTag.trim().replace(/^#+/, "").toLowerCase() : "";
 
-    if (!tags.length) {
+    if (!tags.length && !state.activeTag && !state.activeCharacter) {
       container.innerHTML = "";
       return;
     }
+
+    const clearCharBtn = state.activeCharacter ? `
+      <button class="tag-chip character-clear-chip" type="button" data-action="clear-active-character" title="Сбросить фильтр по персонажу">
+        ✕ Персонаж: ${escapeHTML(state.activeCharacter)}
+      </button>
+    ` : "";
 
     const clearBtn = state.activeTag ? `
       <button class="tag-chip tag-clear-chip" type="button" data-action="clear-active-tag" title="Сбросить фильтр по тегу">
@@ -1886,7 +1933,7 @@
       </button>
     `).join("");
 
-    container.innerHTML = clearBtn + chipsHtml;
+    container.innerHTML = clearCharBtn + clearBtn + chipsHtml;
   }
 
   let updateModelTagSuggestions = null;
@@ -1975,6 +2022,7 @@
 
     const query = normalize($("#setSearch")?.value);
     const modelId = $("#setModelFilter")?.value || "";
+    const characterFilter = $("#setCharacterFilter")?.value || state.activeCharacter || "";
     const sort = $("#setSort")?.value || "updated";
     const favoritesOnly = Boolean($("#favoritesOnly")?.checked);
 
@@ -1984,6 +2032,15 @@
 
       if (modelId && !getSetModelIds(set).includes(modelId)) return false;
       if (favoritesOnly && !set.favorite) return false;
+
+      // Фильтр по персонажу:
+      if (characterFilter) {
+        const charFilterClean = characterFilter.trim().toLowerCase();
+        const setCharClean = (set.character || "").trim().toLowerCase();
+        if (setCharClean !== charFilterClean && !setCharClean.includes(charFilterClean)) {
+          return false;
+        }
+      }
 
       // Тег выбран: фильтруем ТОЛЬКО сеты, у которых этот тег действительно указан
       if (state.activeTag) {
@@ -1999,6 +2056,12 @@
       if (query.startsWith("#")) {
         const tagQuery = query.replace(/^#+/, "").trim().toLowerCase();
         return tagQuery ? setTags.some(t => t.includes(tagQuery)) : true;
+      }
+
+      // Если в поиск введён персонаж через @ или 'персонаж:' или 'char:' (например @aerith): ищем СТРОГО по персонажу
+      if (query.startsWith("@") || query.startsWith("персонаж:") || query.startsWith("char:")) {
+        const charQuery = query.replace(/^(@|персонаж:|char:)\s*/i, "").trim().toLowerCase();
+        return charQuery ? (set.character || "").toLowerCase().includes(charQuery) : true;
       }
 
       return [
@@ -2147,6 +2210,7 @@
   function renderAll() {
     renderModels();
     renderModelFilter();
+    renderCharacterFilter();
     renderTagChips();
     renderSets();
 
@@ -2751,6 +2815,11 @@
 
     if (route.page === "model-detail") renderModelDetail();
     if (route.page === "set-detail") renderSetDetail();
+    if (route.page === "sets") {
+      renderTagChips();
+      renderCharacterFilter();
+      renderSets();
+    }
 
     syncHash();
     updateDocumentTitle();
@@ -4488,7 +4557,16 @@
                 : "Неизвестная модель"}</p>`}
           <h1>${escapeHTML(title)}</h1>
           <div class="set-meta">
-            <span>Персонаж: ${escapeHTML(set.character || "не указан")}</span>
+            <span class="set-meta-character">
+              Персонаж: ${set.character
+                ? `<button class="set-character-pill" type="button"
+                     data-action="filter-character" data-character="${escapeHTML(set.character)}"
+                     title="Показать все сеты персонажа ${escapeHTML(set.character)}">
+                     <span>${escapeHTML(set.character)}</span>
+                     <span class="search-icon" aria-hidden="true">🔍</span>
+                   </button>`
+                : "не указан"}
+            </span>
             <span>${escapeHTML(formatDate(set.date || set.createdAt?.slice(0, 10)))}</span>
             ${set.rating ? `<span>★ ${escapeHTML(set.rating)}/5</span>` : ""}
             <span>${photos.length} ${pluralize(photos.length, "фото", "фото", "фото")}</span>
@@ -5214,6 +5292,7 @@
       state.selectedModelId = null;
       state.viewedSetId = null;
       state.activeTag = "";
+      state.activeCharacter = "";
 
       navigate("models");
       renderAll();
@@ -6132,6 +6211,40 @@
         removeMassPhoto(id);
         break;
 
+      case "filter-character": {
+        const clickedChar = (element.dataset.character || "").trim();
+        if (state.activeCharacter && state.activeCharacter.toLowerCase() === clickedChar.toLowerCase()) {
+          state.activeCharacter = "";
+        } else {
+          state.activeCharacter = clickedChar;
+        }
+
+        const charSelect = $("#setCharacterFilter");
+        if (charSelect) {
+          charSelect.value = state.activeCharacter;
+        }
+
+        if (state.page !== "sets") {
+          navigate("sets");
+        } else {
+          renderTagChips();
+          renderCharacterFilter();
+          renderSets();
+        }
+        break;
+      }
+
+      case "clear-active-character": {
+        state.activeCharacter = "";
+        const charSelect = $("#setCharacterFilter");
+        if (charSelect) {
+          charSelect.value = "";
+        }
+        renderTagChips();
+        renderSets();
+        break;
+      }
+
       case "filter-tag": {
         const clickedTag = (element.dataset.tag || "").trim().replace(/^#+/, "");
         if (state.activeTag && state.activeTag.toLowerCase() === clickedTag.toLowerCase()) {
@@ -6278,6 +6391,11 @@
 
     $("#setSearch")?.addEventListener("input", renderSets);
     $("#setModelFilter")?.addEventListener("change", renderSets);
+    $("#setCharacterFilter")?.addEventListener("change", () => {
+      state.activeCharacter = $("#setCharacterFilter")?.value || "";
+      renderTagChips();
+      renderSets();
+    });
     $("#setSort")?.addEventListener("change", () => {
       renderSets();
 

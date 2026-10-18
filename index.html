@@ -38,16 +38,16 @@
     } catch {}
   </script>
 
-  <link rel="stylesheet" href="css/style.css?v=32">
+  <link rel="stylesheet" href="css/style.css?v=33">
 
-  <script src="js/config.js?v=32" defer></script>
-  <script src="js/providers/registry.js?v=32" defer></script>
-  <script src="js/drive.js?v=32" defer></script>
-  <script src="js/providers/dropbox.js?v=32" defer></script>
-  <script src="js/vendor/jszip.min.js?v=32" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=32" defer></script>
-  <script src="js/vendor/unrar.min.js?v=32" defer></script>
-  <script src="js/app.js?v=32" defer></script>
+  <script src="js/config.js?v=33" defer></script>
+  <script src="js/providers/registry.js?v=33" defer></script>
+  <script src="js/drive.js?v=33" defer></script>
+  <script src="js/providers/dropbox.js?v=33" defer></script>
+  <script src="js/vendor/jszip.min.js?v=33" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=33" defer></script>
+  <script src="js/vendor/unrar.min.js?v=33" defer></script>
+  <script src="js/app.js?v=33" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -191,7 +191,7 @@
           <input
             id="setSearch"
             type="search"
-            placeholder="Персонаж, модель, название или тег"
+            placeholder="Персонаж (@), модель, название или тег (#)"
             autocomplete="off"
           >
         </label>
@@ -201,6 +201,13 @@
         </label>
         <select id="setModelFilter">
           <option value="">Все модели</option>
+        </select>
+
+        <label class="visually-hidden" for="setCharacterFilter">
+          Фильтр по персонажу
+        </label>
+        <select id="setCharacterFilter">
+          <option value="">Все персонажи</option>
         </select>
 
         <label class="visually-hidden" for="setSort">
