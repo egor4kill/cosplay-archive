@@ -28,18 +28,26 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Cosplay Archive">
+  <script>
+    try {
+      if (localStorage.getItem("ca_disguise_mode") !== "false") {
+        const p = localStorage.getItem("ca_disguise_preset") || "docs";
+        const c = localStorage.getItem("ca_custom_title");
+        document.title = (p === "custom" && c) ? c : (p === "notes" ? "Личные заметки" : p === "workspace" ? "Cloud Workspace" : "Документы — Google Диск");
+      }
+    } catch {}
+  </script>
 
-  <link rel="stylesheet" href="css/style.css?v=30">
+  <link rel="stylesheet" href="css/style.css?v=31">
 
-  <script src="js/config.js?v=30" defer></script>
-  <script src="js/providers/registry.js?v=30" defer></script>
-  <script src="js/drive.js?v=30" defer></script>
-  <script src="js/providers/dropbox.js?v=30" defer></script>
-  <script src="js/vendor/jszip.min.js?v=30" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=30" defer></script>
-  <script src="js/vendor/unrar.min.js?v=30" defer></script>
-  <script src="js/app.js?v=30" defer></script>
+  <script src="js/config.js?v=31" defer></script>
+  <script src="js/providers/registry.js?v=31" defer></script>
+  <script src="js/drive.js?v=31" defer></script>
+  <script src="js/providers/dropbox.js?v=31" defer></script>
+  <script src="js/vendor/jszip.min.js?v=31" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=31" defer></script>
+  <script src="js/vendor/unrar.min.js?v=31" defer></script>
+  <script src="js/app.js?v=31" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -80,8 +88,12 @@
     </nav>
 
     <div class="top-actions">
-      <button class="button button-quiet" type="button" id="privacyToggleBtn" title="Скрыть / Размыть контент (Esc)">
-        👁️ Скрыть
+      <button class="button button-quiet" type="button" id="lockNowBtn" title="Заблокировать сайт (Esc)">
+        🔒 Запереть
+      </button>
+
+      <button class="button button-quiet" type="button" id="securitySettingsBtn" title="Безопасность и камуфляж">
+        🛡️ Защита
       </button>
 
       <button class="button button-quiet" type="button" id="randomSetBtn">
@@ -295,6 +307,10 @@
 
       <button class="text-button" id="purgeStorageBtn" type="button" title="Удалить сохранённые оригиналы фото с устройства (они останутся в Google Drive)">
         Очистить память
+      </button>
+
+      <button class="text-button" id="footerSecurityBtn" type="button" title="Настройки PIN-кода и маскировки">
+        Безопасность и PIN
       </button>
     </div>
 
@@ -829,16 +845,137 @@
     popover="manual"
   ></div>
 
-  <!-- Шторка приватности (размытие контента) -->
-  <div id="privacyCurtain" class="privacy-curtain" role="region" aria-label="Приватный режим">
-    <div class="privacy-curtain-card">
-      <div class="privacy-icon" aria-hidden="true">🛡️</div>
-      <h2>Приватный режим</h2>
-      <p>Контент скрыт для вашей приватности.</p>
-      <button class="button button-primary" type="button" id="privacyUnlockBtn">
-        👁️ Показать контент
-      </button>
-      <span class="privacy-hint">Нажми в любом месте, кнопку или Пробел / Esc</span>
+  <!-- Диалог настроек безопасности и маскировки -->
+  <dialog class="dialog" id="securitySettingsDialog" aria-labelledby="securitySettingsTitle">
+    <form class="dialog-content" id="securitySettingsForm">
+      <div class="dialog-heading">
+        <h2 id="securitySettingsTitle">🛡️ Безопасность и маскировка</h2>
+        <p class="muted">Защита сайта PIN-кодом и камуфляж вкладки от посторонних глаз.</p>
+      </div>
+
+      <!-- Секция: PIN-код -->
+      <div class="settings-group">
+        <label class="settings-group-title">PIN-код доступа</label>
+        <p class="settings-desc">Блокирует доступ к сайту до ввода 4-значного PIN-кода.</p>
+        <div class="pin-status-row">
+          <span class="pin-status-badge is-unset" id="settingsPinStatusBadge">Не установлен</span>
+          <div class="pin-status-actions">
+            <button class="button button-quiet button-sm" type="button" id="settingsSetPinBtn">
+              Задать PIN-код
+            </button>
+            <button class="button button-quiet button-sm button-danger hidden" type="button" id="settingsRemovePinBtn">
+              Удалить PIN
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Секция: Автоблокировка -->
+      <div class="settings-group">
+        <label class="settings-group-title">Автоблокировка</label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="settingsAutolockBlur" checked>
+          <span>Блокировать при сворачивании или переключении вкладки</span>
+        </label>
+      </div>
+
+      <!-- Секция: Маскировка сайта (Камуфляж) -->
+      <div class="settings-group">
+        <label class="settings-group-title">Маскировка сайта (Камуфляж)</label>
+        <p class="settings-desc">
+          Подменяет название вкладки, значок (favicon) и шапку, чтобы никто рядом не понял тематику сайта.
+        </p>
+        <label class="checkbox-label">
+          <input type="checkbox" id="settingsDisguiseToggle" checked>
+          <span>Включить маскировку</span>
+        </label>
+
+        <div id="settingsDisguiseOptions" class="disguise-options">
+          <label for="settingsDisguisePreset">
+            Стиль маскировки:
+            <select id="settingsDisguisePreset" class="select-input">
+              <option value="docs">Google Документы (Документы — Google Диск)</option>
+              <option value="notes">Личные заметки</option>
+              <option value="workspace">Cloud Workspace</option>
+              <option value="custom">Своё название вкладки…</option>
+            </select>
+          </label>
+
+          <label id="settingsCustomTitleWrap" class="hidden" for="settingsCustomTitle">
+            Своё название вкладки:
+            <input type="text" id="settingsCustomTitle" placeholder="Например: Отчёты по работе или Учёба">
+          </label>
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="button button-primary" type="button" id="securitySettingsCloseBtn">
+          Готово
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Защитный экран блокировки (PIN-код и камуфляж) -->
+  <div id="privacyCurtain" class="privacy-curtain" role="region" aria-label="Экран блокировки">
+    <div class="privacy-curtain-card" id="pinLockCard">
+      <div class="privacy-icon" id="pinLockIcon" aria-hidden="true">🔒</div>
+      <h2 id="pinLockTitle">Документы — Защищённый доступ</h2>
+      <p id="pinLockSubtitle" class="pin-lock-sub">Введите PIN-код для доступа</p>
+
+      <!-- Индикатор точек PIN-кода -->
+      <div class="pin-display" id="pinDisplayWrap">
+        <div class="pin-dots" id="pinDots" aria-label="Ввод PIN-кода">
+          <span class="pin-dot" data-idx="0"></span>
+          <span class="pin-dot" data-idx="1"></span>
+          <span class="pin-dot" data-idx="2"></span>
+          <span class="pin-dot" data-idx="3"></span>
+        </div>
+        <div class="pin-error-msg hidden" id="pinErrorMsg">Неверный PIN-код</div>
+      </div>
+
+      <!-- Цифровая клавиатура -->
+      <div class="pin-keypad" id="pinKeypad">
+        <button class="pin-key" type="button" data-digit="1">1</button>
+        <button class="pin-key" type="button" data-digit="2">2</button>
+        <button class="pin-key" type="button" data-digit="3">3</button>
+        <button class="pin-key" type="button" data-digit="4">4</button>
+        <button class="pin-key" type="button" data-digit="5">5</button>
+        <button class="pin-key" type="button" data-digit="6">6</button>
+        <button class="pin-key" type="button" data-digit="7">7</button>
+        <button class="pin-key" type="button" data-digit="8">8</button>
+        <button class="pin-key" type="button" data-digit="9">9</button>
+        <button class="pin-key pin-key-action" type="button" id="pinClearBtn" title="Сбросить ввод">✕</button>
+        <button class="pin-key" type="button" data-digit="0">0</button>
+        <button class="pin-key pin-key-action" type="button" id="pinBackspaceBtn" title="Стереть символ">⌫</button>
+      </div>
+
+      <!-- Скрытый инпут для экранной клавиатуры на мобильных устройствах -->
+      <input
+        type="password"
+        id="pinHiddenInput"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        maxlength="4"
+        autocomplete="one-time-code"
+        aria-hidden="true"
+        tabindex="-1"
+        class="pin-hidden-input"
+      >
+
+      <!-- Дополнительные действия на экране блокировки -->
+      <div class="pin-card-footer" id="pinCardFooter">
+        <button class="button button-quiet button-sm hidden" type="button" id="pinSetupLaterBtn">
+          Войти без PIN-кода
+        </button>
+        <button class="text-button pin-forgot-btn hidden" type="button" id="pinForgotBtn">
+          Забыли PIN-код?
+        </button>
+      </div>
+
+      <div class="privacy-hint" id="pinKeyboardHint">
+        Набирай цифры на клавиатуре или кнопками на экране. Esc — заблокировать.
+      </div>
     </div>
   </div>
 </body>

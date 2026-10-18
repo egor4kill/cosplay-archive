@@ -3177,29 +3177,30 @@ a.button {
   display: none !important;
 }
 
-/* -------------------- Режим приватности (Размытие контента) -------------------- */
+/* -------------------- Режим приватности, PIN-код и Камуфляж -------------------- */
 
-body.privacy-active .main-content {
-  filter: blur(28px) saturate(0.7);
+body.privacy-active .main-content,
+body.privacy-active .topbar,
+body.privacy-active footer {
+  filter: blur(36px) saturate(0.3);
+  opacity: 0.08;
   pointer-events: none;
   user-select: none;
-  transition: filter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: filter 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms ease;
 }
 
 .privacy-curtain {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(14, 11, 20, 0.78);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: #0c0a12; /* 100% непрозрачный темный фон: сквозь него невозможно ничего разглядеть */
   opacity: 0;
   pointer-events: none;
-  transition: opacity 240ms ease, backdrop-filter 240ms ease;
-  cursor: pointer;
+  transition: opacity 220ms ease;
+  padding: 16px;
 }
 
 body.privacy-active .privacy-curtain {
@@ -3209,15 +3210,15 @@ body.privacy-active .privacy-curtain {
 
 .privacy-curtain-card {
   position: relative;
-  max-width: 440px;
-  width: 90%;
-  padding: 32px 28px;
-  background: linear-gradient(160deg, #241e33, #15121e 80%);
-  border: 1px solid rgba(182, 154, 255, 0.28);
-  border-radius: var(--radius-lg, 16px);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  max-width: 370px;
+  width: 100%;
+  padding: 30px 24px 26px;
+  background: linear-gradient(165deg, #1f192b, #120f1b 85%);
+  border: 1px solid rgba(182, 154, 255, 0.22);
+  border-radius: 20px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04);
   text-align: center;
-  cursor: default;
+  user-select: none;
   animation: privacyCardIn 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -3227,30 +3228,270 @@ body.privacy-active .privacy-curtain {
 }
 
 .privacy-icon {
-  font-size: 44px;
+  font-size: 38px;
+  line-height: 1;
   margin-bottom: 12px;
-  filter: drop-shadow(0 4px 12px rgba(182, 154, 255, 0.4));
+  filter: drop-shadow(0 4px 14px rgba(182, 154, 255, 0.35));
 }
 
 .privacy-curtain-card h2 {
-  margin: 0 0 8px;
-  font-size: 22px;
+  margin: 0 0 6px;
+  font-size: 20px;
   font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.pin-lock-sub {
+  margin: 0 0 18px;
+  color: #a89bc2;
+  font-size: 13.5px;
+  min-height: 20px;
+  transition: color 200ms ease;
+  line-height: 1.4;
+}
+
+.pin-lock-sub.is-highlight {
+  color: #b69aff;
+  font-weight: 600;
+}
+
+/* Индикатор точек PIN */
+.pin-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.pin-dots {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.pin-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(182, 154, 255, 0.4);
+  background: transparent;
+  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+              background 160ms ease,
+              border-color 160ms ease,
+              box-shadow 160ms ease;
+}
+
+.pin-dot.is-filled {
+  background: #b69aff;
+  border-color: #b69aff;
+  transform: scale(1.15);
+  box-shadow: 0 0 12px rgba(182, 154, 255, 0.6);
+}
+
+.pin-dot.is-error {
+  background: #ff4757;
+  border-color: #ff4757;
+  box-shadow: 0 0 12px rgba(255, 71, 87, 0.7);
+}
+
+.pin-dot.is-success {
+  background: #2ed573;
+  border-color: #2ed573;
+  box-shadow: 0 0 12px rgba(46, 213, 115, 0.7);
+}
+
+.pin-error-msg {
+  font-size: 12.5px;
+  color: #ff6b81;
+  margin-top: 6px;
+  font-weight: 500;
+  min-height: 18px;
+}
+
+.pin-error-msg.hidden {
+  display: none !important;
+}
+
+.pin-dots.shake {
+  animation: pinShake 380ms ease-in-out;
+}
+
+@keyframes pinShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-12px); }
+  40%, 80% { transform: translateX(12px); }
+}
+
+/* Клавиатура PIN */
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 260px;
+  margin: 0 auto 12px;
+}
+
+.pin-key {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f1eeff;
+  border-radius: 12px;
+  height: 50px;
+  font-size: 21px;
+  font-weight: 600;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 100ms ease, border-color 120ms ease;
+}
+
+.pin-key:hover {
+  background: rgba(182, 154, 255, 0.16);
+  border-color: rgba(182, 154, 255, 0.4);
+}
+
+.pin-key:active {
+  transform: scale(0.92);
+  background: rgba(182, 154, 255, 0.3);
+}
+
+.pin-key.pin-key-action {
+  font-size: 17px;
+  color: #a89bc2;
+}
+
+.pin-key.pin-key-action:hover {
   color: #fff;
 }
 
-.privacy-curtain-card p {
-  margin: 0 0 20px;
-  color: #b5a9cd;
-  font-size: 14px;
-  line-height: 1.5;
+.pin-hidden-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+}
+
+.pin-card-footer {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.pin-card-footer .button {
+  width: 100%;
+}
+
+.pin-forgot-btn {
+  font-size: 12px;
+  color: #8c81a5;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.pin-forgot-btn:hover {
+  color: #b69aff;
 }
 
 .privacy-hint {
   display: block;
-  margin-top: 14px;
-  font-size: 12px;
-  color: #7d7296;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: #796f90;
+  line-height: 1.4;
+}
+
+/* -------------------- Диалог настроек безопасности -------------------- */
+
+.settings-group {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+
+.settings-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settings-group-title {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  color: #f1eeff;
+  margin-bottom: 4px;
+}
+
+.settings-desc {
+  font-size: 12.5px;
+  color: #9d92b5;
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.pin-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pin-status-badge {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.pin-status-badge.is-set {
+  background: rgba(46, 213, 115, 0.15);
+  color: #2ed573;
+  border: 1px solid rgba(46, 213, 115, 0.3);
+}
+
+.pin-status-badge.is-unset {
+  background: rgba(255, 171, 0, 0.15);
+  color: #ffab00;
+  border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.pin-status-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.disguise-options {
+  margin-top: 10px;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.disguise-options label {
+  font-size: 13px;
+  color: #cfc6e6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 /* -------------------- Чёткость обложек и изображений -------------------- */

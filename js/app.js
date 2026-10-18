@@ -383,7 +383,17 @@
     draftModelCoverPhotoId: null,
     draftPhotoList: [],
     draftSelectedPhotoIds: new Set(),
-    privacyActive: false,
+    privacyActive: true,
+    isLocked: true,
+    hasPin: false,
+    pinBuffer: "",
+    pinSetupStep: 1,
+    pinSetupFirst: null,
+    pinMode: "unlock",
+    autolockBlur: true,
+    disguiseActive: true,
+    disguisePreset: "docs",
+    customTitle: "",
     massUploadPhotos: [],
     massUploadObjectURLs: new Map(),
     massUploadTargetSetId: null,
@@ -2154,27 +2164,398 @@
     updateSetTagSuggestions?.();
   }
 
-  /* -------------------- Режим приватности (Размытие) -------------------- */
+  /* -------------------- Безопасность, PIN-код и Камуфляж -------------------- */
 
-  function setPrivacy(active) {
-    if (!isUserAuthenticated()) {
-      document.body.classList.remove("privacy-active");
-      state.privacyActive = false;
-      return;
+  const DISGUISE_PRESETS = {
+    docs: {
+      title: "Документы — Google Диск",
+      shortTitle: "Документы",
+      brandMark: "📄",
+      brandName: `Документы <strong>Диск</strong>`,
+      navModels: "Разделы",
+      navSets: "Все файлы",
+      lockTitle: "Google Документы",
+      lockSub: "Личное защищённое хранилище документов",
+      pinPrompt: "Введите PIN-код для доступа к документам",
+      faviconSvg: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path fill='%232196F3' d='M37 45H11c-2.2 0-4-1.8-4-4V7c0-2.2 1.8-4 4-4h18l12 12v26c0 2.2-1.8 4-4 4z'/><path fill='%23BBDEFB' d='M29 3v12h12'/><path fill='%23fff' d='M15 23h18v2.5H15zm0 6h18v2.5H15zm0 6h12v2.5H15z'/></svg>`
+    },
+    notes: {
+      title: "Личные заметки",
+      shortTitle: "Заметки",
+      brandMark: "📝",
+      brandName: `Личные <strong>Заметки</strong>`,
+      navModels: "Категории",
+      navSets: "Все записи",
+      lockTitle: "Личные заметки",
+      lockSub: "Защищённый блокнот",
+      pinPrompt: "Введите PIN-код для доступа к заметкам",
+      faviconSvg: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='10' fill='%23f9ab00'/><path fill='%23fff' d='M14 14h20v4H14zm0 8h20v4H14zm0 8h14v4H14z'/></svg>`
+    },
+    workspace: {
+      title: "Cloud Workspace",
+      shortTitle: "Workspace",
+      brandMark: "💼",
+      brandName: `Cloud <strong>Workspace</strong>`,
+      navModels: "Проекты",
+      navSets: "Материалы",
+      lockTitle: "Cloud Workspace",
+      lockSub: "Корпоративное рабочее пространство",
+      pinPrompt: "Введите PIN-код для входа в рабочую область",
+      faviconSvg: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='10' fill='%235c6bc0'/><path fill='%23fff' d='M12 18h24v20H12zm6-8h12v4H18z'/></svg>`
+    },
+    custom: {
+      title: "Мои документы",
+      shortTitle: "Документы",
+      brandMark: "📁",
+      brandName: `Личные <strong>Файлы</strong>`,
+      navModels: "Разделы",
+      navSets: "Все файлы",
+      lockTitle: "Личный архив",
+      lockSub: "Защищённый доступ к файлам",
+      pinPrompt: "Введите PIN-код для входа",
+      faviconSvg: `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path fill='%231976D2' d='M10 8h12l4 4h12c2.2 0 4 1.8 4 4v20c0 2.2-1.8 4-4 4H10c-2.2 0-4-1.8-4-4V12c0-2.2 1.8-4 4-4z'/></svg>`
+    }
+  };
+
+  const ORIGINAL_IDENTITY = {
+    title: "Cosplay Archive",
+    brandMark: "CA",
+    brandName: `Cosplay <strong>Archive</strong>`,
+    navModels: "Модели",
+    navSets: "Все сеты",
+    faviconHref: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b69aff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='Arial' font-weight='bold' text-anchor='middle' fill='%2317131f'%3ECA%3C/text%3E%3C/svg%3E"
+  };
+
+  async function hashPin(pin, salt = "") {
+    try {
+      if (crypto?.subtle?.digest) {
+        const enc = new TextEncoder();
+        const data = enc.encode(`${salt}:${pin}:ca_v30`);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      }
+    } catch {}
+    let h = 0x811c9dc5;
+    const str = `${salt}:${pin}:ca_fallback`;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16);
+  }
+
+  function initSecurityState() {
+    state.hasPin = Boolean(localStorage.getItem("ca_pin_hash"));
+    state.autolockBlur = localStorage.getItem("ca_autolock_blur") !== "false";
+    state.disguiseActive = localStorage.getItem("ca_disguise_mode") !== "false";
+    state.disguisePreset = localStorage.getItem("ca_disguise_preset") || "docs";
+    state.customTitle = localStorage.getItem("ca_custom_title") || "";
+
+    state.pinMode = state.hasPin ? "unlock" : "setup";
+    state.pinBuffer = "";
+    state.pinSetupStep = 1;
+    state.pinSetupFirst = null;
+
+    applyCamouflage();
+    lockApp();
+  }
+
+  function applyCamouflage() {
+    const isDisguised = state.disguiseActive;
+    const presetKey = state.disguisePreset || "docs";
+    const preset = DISGUISE_PRESETS[presetKey] || DISGUISE_PRESETS.docs;
+
+    const brandMarkEl = $("#brandHome .brand-mark");
+    const brandNameEl = $("#brandHome .brand-name");
+    const brandHomeEl = $("#brandHome");
+    const navModelsEl = document.querySelector('[data-page="models"]');
+    const navSetsEl = document.querySelector('[data-page="sets"]');
+    const faviconEl = document.querySelector('link[rel="icon"]') || document.querySelector('link[rel*="icon"]');
+
+    if (isDisguised) {
+      const finalTitle = (presetKey === "custom" && state.customTitle.trim())
+        ? state.customTitle.trim()
+        : preset.title;
+
+      document.title = finalTitle;
+
+      if (faviconEl) {
+        faviconEl.href = `data:image/svg+xml,${encodeURIComponent(preset.faviconSvg)}`;
+      }
+
+      if (brandMarkEl) brandMarkEl.textContent = preset.brandMark;
+      if (brandNameEl) brandNameEl.innerHTML = preset.brandName;
+      if (brandHomeEl) brandHomeEl.setAttribute("aria-label", preset.shortTitle);
+
+      if (navModelsEl) navModelsEl.textContent = preset.navModels;
+      if (navSetsEl) navSetsEl.textContent = preset.navSets;
+
+      const gateHead = $("#authGate h2");
+      const gateDesc = $("#authGate p");
+      if (gateHead) gateHead.textContent = "Хранилище заблокировано";
+      if (gateDesc) gateDesc.textContent = "Подключите Google Диск для доступа к вашим файлам и папкам.";
+    } else {
+      document.title = ORIGINAL_IDENTITY.title;
+
+      if (faviconEl) {
+        faviconEl.href = ORIGINAL_IDENTITY.faviconHref;
+      }
+
+      if (brandMarkEl) brandMarkEl.textContent = ORIGINAL_IDENTITY.brandMark;
+      if (brandNameEl) brandNameEl.innerHTML = ORIGINAL_IDENTITY.brandName;
+      if (brandHomeEl) brandHomeEl.setAttribute("aria-label", "Cosplay Archive");
+
+      if (navModelsEl) navModelsEl.textContent = ORIGINAL_IDENTITY.navModels;
+      if (navSetsEl) navSetsEl.textContent = ORIGINAL_IDENTITY.navSets;
+
+      const gateHead = $("#authGate h2");
+      const gateDesc = $("#authGate p");
+      if (gateHead) gateHead.textContent = "Архив заблокирован";
+      if (gateDesc) gateDesc.textContent = "Фотографии скрыты. Подключите Google Диск, чтобы получить доступ к вашим фотосетам и моделям.";
+    }
+  }
+
+  function renderPinDots() {
+    const dots = document.querySelectorAll("#pinDots .pin-dot");
+    const len = state.pinBuffer.length;
+    dots.forEach((dot, idx) => {
+      dot.classList.toggle("is-filled", idx < len);
+      dot.classList.remove("is-error", "is-success");
+    });
+  }
+
+  function updatePinScreenUI() {
+    const titleEl = $("#pinLockTitle");
+    const subEl = $("#pinLockSubtitle");
+    const iconEl = $("#pinLockIcon");
+    const setupLaterBtn = $("#pinSetupLaterBtn");
+    const forgotBtn = $("#pinForgotBtn");
+    const errorEl = $("#pinErrorMsg");
+    if (errorEl) errorEl.classList.add("hidden");
+
+    const preset = DISGUISE_PRESETS[state.disguisePreset || "docs"] || DISGUISE_PRESETS.docs;
+
+    if (state.pinMode === "setup") {
+      if (iconEl) iconEl.textContent = "🔐";
+      if (titleEl) titleEl.textContent = state.disguiseActive ? "Защита хранилища" : "Установка PIN-кода";
+      if (subEl) {
+        subEl.textContent = state.pinSetupStep === 1
+          ? "Шаг 1 из 2: придумайте 4-значный PIN-код"
+          : "Шаг 2 из 2: повторите PIN-код для подтверждения";
+        subEl.classList.toggle("is-highlight", state.pinSetupStep === 2);
+      }
+      if (setupLaterBtn) setupLaterBtn.classList.remove("hidden");
+      if (forgotBtn) forgotBtn.classList.add("hidden");
+    } else {
+      if (iconEl) iconEl.textContent = state.disguiseActive ? (preset.brandMark || "🔒") : "🔒";
+      if (titleEl) titleEl.textContent = state.disguiseActive ? (preset.lockTitle || "Документы — Защищённый доступ") : "Вход в архив";
+      if (subEl) {
+        subEl.textContent = state.disguiseActive ? (preset.pinPrompt || "Введите PIN-код для доступа") : "Введите 4-значный PIN-код для входа";
+        subEl.classList.remove("is-highlight");
+      }
+      if (setupLaterBtn) setupLaterBtn.classList.add("hidden");
+      if (forgotBtn) forgotBtn.classList.remove("hidden");
+    }
+  }
+
+  function showPinError(msg = "Неверный PIN-код") {
+    const dotsWrap = $("#pinDots");
+    const errorEl = $("#pinErrorMsg");
+    const dots = document.querySelectorAll("#pinDots .pin-dot");
+
+    dots.forEach(d => d.classList.add("is-error"));
+    if (dotsWrap) {
+      dotsWrap.classList.remove("shake");
+      void dotsWrap.offsetWidth;
+      dotsWrap.classList.add("shake");
+    }
+    if (errorEl) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove("hidden");
     }
 
-    state.privacyActive = Boolean(active);
-    document.body.classList.toggle("privacy-active", state.privacyActive);
+    setTimeout(() => {
+      state.pinBuffer = "";
+      renderPinDots();
+      if (dotsWrap) dotsWrap.classList.remove("shake");
+      if (errorEl) errorEl.classList.add("hidden");
+    }, 450);
+  }
 
-    const toggleBtn = $("#privacyToggleBtn");
-    if (toggleBtn) {
-      toggleBtn.innerHTML = state.privacyActive ? "👁️ Открыть" : "👁️ Скрыть";
-      toggleBtn.title = state.privacyActive ? "Показать контент" : "Скрыть / Размыть контент (Esc)";
+  function showPinSuccess() {
+    const dots = document.querySelectorAll("#pinDots .pin-dot");
+    dots.forEach(d => d.classList.add("is-success"));
+  }
+
+  async function handlePinInput(digit) {
+    if (state.pinBuffer.length >= 4) return;
+    state.pinBuffer += String(digit);
+    renderPinDots();
+
+    if (state.pinBuffer.length === 4) {
+      if (state.pinMode === "unlock") {
+        await processUnlockAttempt();
+      } else if (state.pinMode === "setup") {
+        await processSetupStep();
+      }
+    }
+  }
+
+  function handlePinBackspace() {
+    if (state.pinBuffer.length > 0) {
+      state.pinBuffer = state.pinBuffer.slice(0, -1);
+      renderPinDots();
+    }
+  }
+
+  function handlePinClear() {
+    state.pinBuffer = "";
+    renderPinDots();
+  }
+
+  async function processUnlockAttempt() {
+    const savedHash = localStorage.getItem("ca_pin_hash");
+    const savedSalt = localStorage.getItem("ca_pin_salt") || "";
+    const inputHash = await hashPin(state.pinBuffer, savedSalt);
+
+    if (inputHash === savedHash) {
+      showPinSuccess();
+      setTimeout(() => {
+        unlockApp();
+      }, 240);
+    } else {
+      showPinError("Неверный PIN-код");
+    }
+  }
+
+  async function processSetupStep() {
+    if (state.pinSetupStep === 1) {
+      state.pinSetupFirst = state.pinBuffer;
+      state.pinBuffer = "";
+      state.pinSetupStep = 2;
+      renderPinDots();
+      updatePinScreenUI();
+    } else if (state.pinSetupStep === 2) {
+      if (state.pinBuffer === state.pinSetupFirst) {
+        const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const hash = await hashPin(state.pinBuffer, salt);
+        localStorage.setItem("ca_pin_hash", hash);
+        localStorage.setItem("ca_pin_salt", salt);
+        state.hasPin = true;
+        state.pinMode = "unlock";
+
+        showPinSuccess();
+        showToast("PIN-код успешно установлен! 🔒", "success");
+        setTimeout(() => {
+          unlockApp();
+        }, 280);
+      } else {
+        showPinError("PIN-коды не совпали. Попробуйте снова.");
+        setTimeout(() => {
+          state.pinSetupStep = 1;
+          state.pinSetupFirst = null;
+          state.pinBuffer = "";
+          renderPinDots();
+          updatePinScreenUI();
+        }, 700);
+      }
+    }
+  }
+
+  function lockApp() {
+    state.isLocked = true;
+    state.privacyActive = true;
+    document.body.classList.add("privacy-active");
+    state.pinBuffer = "";
+    state.pinMode = state.hasPin ? "unlock" : "setup";
+    state.pinSetupStep = 1;
+    state.pinSetupFirst = null;
+    updatePinScreenUI();
+    renderPinDots();
+    applyCamouflage();
+  }
+
+  function unlockApp() {
+    state.isLocked = false;
+    state.privacyActive = false;
+    document.body.classList.remove("privacy-active");
+    state.pinBuffer = "";
+    renderPinDots();
+  }
+
+  function setPrivacy(active) {
+    if (active) {
+      lockApp();
+    } else {
+      unlockApp();
     }
   }
 
   function togglePrivacy() {
-    setPrivacy(!state.privacyActive);
+    if (state.privacyActive) {
+      if (state.hasPin) {
+        showToast("Для разблокировки введите PIN-код.", "info");
+      } else {
+        unlockApp();
+      }
+    } else {
+      lockApp();
+    }
+  }
+
+  function resetPin() {
+    if (confirm("Сбросить PIN-код? Это снимет защиту на этом устройстве. Ваши фото в облаке останутся в полной безопасности.")) {
+      localStorage.removeItem("ca_pin_hash");
+      localStorage.removeItem("ca_pin_salt");
+      state.hasPin = false;
+      state.pinMode = "setup";
+      state.pinSetupStep = 1;
+      state.pinSetupFirst = null;
+      state.pinBuffer = "";
+      renderPinDots();
+      updatePinScreenUI();
+      showToast("PIN-код сброшен.", "info");
+    }
+  }
+
+  function openSecuritySettings() {
+    const dialog = $("#securitySettingsDialog");
+    if (!dialog) return;
+
+    updateSecuritySettingsUI();
+    openDialog(dialog);
+  }
+
+  function updateSecuritySettingsUI() {
+    const badge = $("#settingsPinStatusBadge");
+    const setBtn = $("#settingsSetPinBtn");
+    const removeBtn = $("#settingsRemovePinBtn");
+    const autolockChk = $("#settingsAutolockBlur");
+    const disguiseToggle = $("#settingsDisguiseToggle");
+    const presetSelect = $("#settingsDisguisePreset");
+    const customWrap = $("#settingsCustomTitleWrap");
+    const customInput = $("#settingsCustomTitle");
+
+    if (badge) {
+      if (state.hasPin) {
+        badge.textContent = "Установлен (4 цифры)";
+        badge.className = "pin-status-badge is-set";
+        if (setBtn) setBtn.textContent = "Сменить PIN-код";
+        if (removeBtn) removeBtn.classList.remove("hidden");
+      } else {
+        badge.textContent = "Не установлен";
+        badge.className = "pin-status-badge is-unset";
+        if (setBtn) setBtn.textContent = "Задать PIN-код";
+        if (removeBtn) removeBtn.classList.add("hidden");
+      }
+    }
+
+    if (autolockChk) autolockChk.checked = state.autolockBlur;
+    if (disguiseToggle) disguiseToggle.checked = state.disguiseActive;
+    if (presetSelect) presetSelect.value = state.disguisePreset || "docs";
+    if (customWrap) customWrap.classList.toggle("hidden", state.disguisePreset !== "custom");
+    if (customInput) customInput.value = state.customTitle || "";
   }
 
   function updateNavigation() {
@@ -2187,16 +2568,16 @@
     // Скрываем навигацию и кнопки добавления, пока пользователь не вошёл в аккаунт
     const addBtn = $("#addMainBtn");
     const randBtn = $("#randomSetBtn");
+    const lockBtn = $("#lockNowBtn");
+    const secBtn = $("#securitySettingsBtn");
     const privBtn = $("#privacyToggleBtn");
     const mainNav = $(".main-nav");
     if (addBtn) addBtn.style.display = auth ? "" : "none";
     if (randBtn) randBtn.style.display = auth ? "" : "none";
+    if (lockBtn) lockBtn.style.display = auth ? "" : "none";
+    if (secBtn) secBtn.style.display = "";
     if (privBtn) privBtn.style.display = auth ? "" : "none";
     if (mainNav) mainNav.style.display = auth ? "" : "none";
-
-    if (!auth) {
-      setPrivacy(false);
-    }
 
     $$("[data-page]").forEach(button => {
       const active = button.dataset.page === state.page
@@ -2370,6 +2751,15 @@
   }
 
   function updateDocumentTitle() {
+    if (state.disguiseActive) {
+      const presetKey = state.disguisePreset || "docs";
+      const preset = DISGUISE_PRESETS[presetKey] || DISGUISE_PRESETS.docs;
+      document.title = (presetKey === "custom" && state.customTitle.trim())
+        ? state.customTitle.trim()
+        : preset.title;
+      return;
+    }
+
     const base = CONFIG.appName || "Cosplay Archive";
     let title = base;
 
@@ -5814,13 +6204,78 @@
     $("#selectAllPhotosBtn")?.addEventListener("click", toggleSelectAllDraftPhotos);
     $("#deleteSelectedPhotosBtn")?.addEventListener("click", removeSelectedDraftPhotos);
 
-    // Режим приватности (размытие контента)
-    $("#privacyToggleBtn")?.addEventListener("click", togglePrivacy);
-    $("#privacyUnlockBtn")?.addEventListener("click", () => setPrivacy(false));
-    $("#privacyCurtain")?.addEventListener("click", event => {
-      if (event.target === $("#privacyCurtain") || event.target.closest("#privacyUnlockBtn")) {
-        setPrivacy(false);
+    // Блокировка сайта и экран PIN-кода
+    $("#lockNowBtn")?.addEventListener("click", lockApp);
+    $("#privacyToggleBtn")?.addEventListener("click", lockApp);
+    $("#securitySettingsBtn")?.addEventListener("click", openSecuritySettings);
+    $("#footerSecurityBtn")?.addEventListener("click", openSecuritySettings);
+    $("#securitySettingsCloseBtn")?.addEventListener("click", () => {
+      closeDialog($("#securitySettingsDialog"));
+    });
+
+    // Нажатия на клавиши PIN клавиатуры
+    $$(".pin-key[data-digit]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        handlePinInput(btn.dataset.digit);
+      });
+    });
+
+    $("#pinBackspaceBtn")?.addEventListener("click", handlePinBackspace);
+    $("#pinClearBtn")?.addEventListener("click", handlePinClear);
+
+    // Действия на экране блокировки
+    $("#pinSetupLaterBtn")?.addEventListener("click", () => {
+      unlockApp();
+      showToast("Вход выполнен. Задать PIN-код можно в «🛡️ Защита».", "info");
+    });
+
+    $("#pinForgotBtn")?.addEventListener("click", resetPin);
+
+    // Управление в диалоге настроек
+    $("#settingsSetPinBtn")?.addEventListener("click", () => {
+      closeDialog($("#securitySettingsDialog"));
+      state.pinMode = "setup";
+      state.pinSetupStep = 1;
+      state.pinSetupFirst = null;
+      lockApp();
+      state.pinMode = "setup";
+      updatePinScreenUI();
+    });
+
+    $("#settingsRemovePinBtn")?.addEventListener("click", () => {
+      if (confirm("Удалить PIN-код? Доступ к сайту на этом устройстве больше не будет требовать PIN.")) {
+        localStorage.removeItem("ca_pin_hash");
+        localStorage.removeItem("ca_pin_salt");
+        state.hasPin = false;
+        showToast("PIN-код удалён.", "info");
+        updateSecuritySettingsUI();
       }
+    });
+
+    $("#settingsAutolockBlur")?.addEventListener("change", event => {
+      state.autolockBlur = event.target.checked;
+      localStorage.setItem("ca_autolock_blur", state.autolockBlur ? "true" : "false");
+    });
+
+    $("#settingsDisguiseToggle")?.addEventListener("change", event => {
+      state.disguiseActive = event.target.checked;
+      localStorage.setItem("ca_disguise_mode", state.disguiseActive ? "true" : "false");
+      applyCamouflage();
+      updatePinScreenUI();
+    });
+
+    $("#settingsDisguisePreset")?.addEventListener("change", event => {
+      state.disguisePreset = event.target.value;
+      localStorage.setItem("ca_disguise_preset", state.disguisePreset);
+      $("#settingsCustomTitleWrap")?.classList.toggle("hidden", state.disguisePreset !== "custom");
+      applyCamouflage();
+      updatePinScreenUI();
+    });
+
+    $("#settingsCustomTitle")?.addEventListener("input", event => {
+      state.customTitle = event.target.value;
+      localStorage.setItem("ca_custom_title", state.customTitle);
+      applyCamouflage();
     });
 
     updateModelTagSuggestions = setupTagSuggestions(
@@ -6116,20 +6571,33 @@
         return;
       }
 
-      if (event.key === "Escape") {
-        if (state.privacyActive) {
+      if (state.isLocked) {
+        if (event.key >= "0" && event.key <= "9") {
           event.preventDefault();
-          setPrivacy(false);
-          return;
+          handlePinInput(event.key);
+        } else if (event.key === "Backspace") {
+          event.preventDefault();
+          handlePinBackspace();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          handlePinClear();
         }
+        return;
+      }
 
+      if (event.key === "Escape") {
         const setDialog = $("#setDialog");
         const massDialog = $("#massUploadDialog");
         const modelDialog = $("#modelDialog");
         const pwdDialog = $("#archivePasswordDialog");
+        const secDialog = $("#securitySettingsDialog");
+
+        if (secDialog?.open) {
+          closeDialog(secDialog);
+          return;
+        }
 
         if (setDialog?.open) {
-          // Не даём браузеру закрыть диалог самому — иначе пропустим подтверждение.
           event.preventDefault();
           requestCloseDialog("setDialog");
           return;
@@ -6151,16 +6619,12 @@
           return;
         }
 
-        // Если ни один диалог не открыт — нажатие Escape размывает контент (паник-кнопка)
-        if (isUserAuthenticated()) {
-          setPrivacy(true);
-        }
-      } else if (state.privacyActive && (event.code === "Space" || event.code === "Enter")) {
+        // Если ни один диалог не открыт — нажатие Escape блокирует сайт (паник-кнопка)
         event.preventDefault();
-        setPrivacy(false);
-      } else if (!state.privacyActive && event.code === "KeyP" && !event.target.matches("input, textarea, select")) {
+        lockApp();
+      } else if (!state.isLocked && event.code === "KeyP" && !event.target.matches("input, textarea, select")) {
         event.preventDefault();
-        togglePrivacy();
+        lockApp();
       }
     });
   }
@@ -6205,6 +6669,8 @@
 
   async function init() {
     try {
+      initSecurityState();
+
       await db.open();
 
       initDrive();
@@ -6239,10 +6705,8 @@
         navigator.storage.persist().catch(() => {});
       }
 
-      // Запуск в режиме приватности: при открытии сайта контент размыт
-      if (isUserAuthenticated()) {
-        setPrivacy(true);
-      }
+      // Запуск в режиме блокировки: при открытии сайта контент защищён
+      lockApp();
 
       // Если пользователь авторизован — фоновая бесшумная синхронизация без зависаний UI
       if (isUserAuthenticated()) {
@@ -6251,12 +6715,11 @@
         }, 1200);
       }
 
-      // Авто-синхронизация при возвращении на вкладку / авто-размытие при сворачивании
+      // Авто-синхронизация при возвращении на вкладку / авто-блокировка при сворачивании
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") {
-          // При сворачивании или переключении вкладки — активируем размытие
-          if (isUserAuthenticated()) {
-            setPrivacy(true);
+          if (state.autolockBlur) {
+            lockApp();
           }
         } else if (document.visibilityState === "visible") {
           const last = state.drive.lastSyncAt ? Date.parse(state.drive.lastSyncAt) : 0;
