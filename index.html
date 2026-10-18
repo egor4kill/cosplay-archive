@@ -38,16 +38,16 @@
     } catch {}
   </script>
 
-  <link rel="stylesheet" href="css/style.css?v=33">
+  <link rel="stylesheet" href="css/style.css?v=34">
 
-  <script src="js/config.js?v=33" defer></script>
-  <script src="js/providers/registry.js?v=33" defer></script>
-  <script src="js/drive.js?v=33" defer></script>
-  <script src="js/providers/dropbox.js?v=33" defer></script>
-  <script src="js/vendor/jszip.min.js?v=33" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=33" defer></script>
-  <script src="js/vendor/unrar.min.js?v=33" defer></script>
-  <script src="js/app.js?v=33" defer></script>
+  <script src="js/config.js?v=34" defer></script>
+  <script src="js/providers/registry.js?v=34" defer></script>
+  <script src="js/drive.js?v=34" defer></script>
+  <script src="js/providers/dropbox.js?v=34" defer></script>
+  <script src="js/vendor/jszip.min.js?v=34" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=34" defer></script>
+  <script src="js/vendor/unrar.min.js?v=34" defer></script>
+  <script src="js/app.js?v=34" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -504,14 +504,14 @@
           </select>
         </label>
 
-        <label for="setCharacter">
-          Персонаж(и) <span class="required">*</span>
+        <label for="setCharacter" id="setCharacterLabel">
+          <span id="setCharacterLabelText">Персонаж</span> <span class="required">*</span>
           <input
             id="setCharacter"
             type="text"
             maxlength="120"
             required
-            placeholder="Например, Tifa Lockhart или Tifa & Aerith"
+            placeholder="Например, Tifa Lockhart"
           >
         </label>
 
@@ -526,7 +526,7 @@
             </select>
           </div>
           <small class="muted">
-            Если в фотосессии участвовали две или несколько моделей, добавь их — сет появится в профилях всех участниц!
+            Если в фотосессии участвовали две или несколько моделей, добавь их — у каждой будет свой персонаж, а сет появится в профилях всех участниц!
           </small>
         </div>
 

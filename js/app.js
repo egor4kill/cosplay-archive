@@ -385,6 +385,7 @@
     draftPhotoList: [],
     draftSelectedPhotoIds: new Set(),
     draftCoModelIds: new Set(),
+    draftCoModelCharacters: new Map(),
     privacyActive: true,
     isLocked: true,
     hasPin: false,
@@ -1103,6 +1104,41 @@
     return getSetModelIds(set).map(id => getModel(id)).filter(Boolean);
   }
 
+  function getSetCharacters(set) {
+    if (!set) return [];
+    if (set.modelCharacters && typeof set.modelCharacters === "object") {
+      const list = Object.values(set.modelCharacters)
+        .map(c => String(c || "").trim())
+        .filter(Boolean);
+      if (list.length) return Array.from(new Set(list));
+    }
+
+    const raw = String(set.character || "").trim();
+    if (!raw) return [];
+    const parts = raw.split(/\s*(?:&|\+|×|\/|\band\b|\bи\b)\s*/i)
+      .map(p => p.trim())
+      .filter(Boolean);
+    return parts.length ? Array.from(new Set(parts)) : [raw];
+  }
+
+  function getCharacterForModel(set, modelId) {
+    if (!set || !modelId) return "";
+    if (set.modelCharacters && set.modelCharacters[modelId]) {
+      return String(set.modelCharacters[modelId]).trim();
+    }
+    const modelIds = getSetModelIds(set);
+    if (modelIds.length > 1 && set.character) {
+      const parts = String(set.character).split(/\s*(?:&|\+|×|\/|\band\b|\bи\b)\s*/i)
+        .map(p => p.trim())
+        .filter(Boolean);
+      const idx = modelIds.indexOf(modelId);
+      if (idx !== -1 && parts[idx]) {
+        return parts[idx];
+      }
+    }
+    return String(set.character || "").trim();
+  }
+
   /* -------------------- Адреса (slug) -------------------- */
 
   function slugify(value) {
@@ -1691,6 +1727,7 @@
 
   function renderSetCard(set) {
     const models = getSetModels(set);
+    const characters = getSetCharacters(set);
     const isCollab = models.length > 1;
     const cover = getCover(set);
     const tags = set.tags || [];
@@ -1726,12 +1763,15 @@
             </a>
           </h3>
           <p class="card-subtitle">
-            ${set.character
-              ? `<button class="card-character-link" type="button"
-                   data-action="filter-character" data-character="${escapeHTML(set.character)}"
-                   title="Искать все сеты персонажа ${escapeHTML(set.character)}">
-                   ${escapeHTML(set.character)}
-                 </button>`
+            ${characters.length
+              ? characters.map((char, idx) => `
+                  <button class="card-character-link" type="button"
+                    data-action="filter-character" data-character="${escapeHTML(char)}"
+                    title="Искать все сеты персонажа ${escapeHTML(char)}">
+                    ${escapeHTML(char)}
+                  </button>
+                  ${idx < characters.length - 1 ? '<span class="char-sep">&</span>' : ''}
+                `).join("")
               : `Персонаж не указан`}
           </p>
           ${models.length
@@ -1856,8 +1896,9 @@
   function allSetCharacters() {
     const chars = new Set();
     for (const set of state.sets) {
-      const char = (set.character || "").trim();
-      if (char) chars.add(char);
+      for (const char of getSetCharacters(set)) {
+        if (char) chars.add(char);
+      }
     }
     return [...chars].sort((a, b) =>
       normalize(a).localeCompare(normalize(b), "ru")
@@ -2036,8 +2077,11 @@
       // Фильтр по персонажу:
       if (characterFilter) {
         const charFilterClean = characterFilter.trim().toLowerCase();
-        const setCharClean = (set.character || "").trim().toLowerCase();
-        if (setCharClean !== charFilterClean && !setCharClean.includes(charFilterClean)) {
+        const setChars = getSetCharacters(set).map(c => c.toLowerCase());
+        const matches = setChars.some(c =>
+          c === charFilterClean || c.includes(charFilterClean) || charFilterClean.includes(c)
+        );
+        if (!matches) {
           return false;
         }
       }
@@ -2061,10 +2105,12 @@
       // Если в поиск введён персонаж через @ или 'персонаж:' или 'char:' (например @aerith): ищем СТРОГО по персонажу
       if (query.startsWith("@") || query.startsWith("персонаж:") || query.startsWith("char:")) {
         const charQuery = query.replace(/^(@|персонаж:|char:)\s*/i, "").trim().toLowerCase();
-        return charQuery ? (set.character || "").toLowerCase().includes(charQuery) : true;
+        const setChars = getSetCharacters(set).map(c => c.toLowerCase());
+        return charQuery ? setChars.some(c => c.includes(charQuery)) : true;
       }
 
       return [
+        ...getSetCharacters(set),
         set.character,
         set.title,
         set.description,
@@ -3141,10 +3187,15 @@
       const updatedSharedSets = sharedSets.map(set => {
         const remainingIds = getSetModelIds(set).filter(mId => mId !== id);
         const newPrimaryId = (set.modelId === id) ? remainingIds[0] : set.modelId;
+        const newModelCharacters = { ...(set.modelCharacters || {}) };
+        delete newModelCharacters[id];
+        const newCompositeChar = Object.values(newModelCharacters).filter(Boolean).join(" & ") || set.character;
         return {
           ...set,
           modelId: newPrimaryId,
           modelIds: remainingIds,
+          modelCharacters: newModelCharacters,
+          character: newCompositeChar,
           updatedAt: new Date().toISOString()
         };
       });
@@ -3182,9 +3233,18 @@
     const chipsEl = $("#coModelsChips");
     const selectEl = $("#setCoModelSelect");
     const primaryId = $("#setModelId")?.value || "";
+    const primaryModel = getModel(primaryId);
 
     if (primaryId && state.draftCoModelIds.has(primaryId)) {
       state.draftCoModelIds.delete(primaryId);
+      state.draftCoModelCharacters.delete(primaryId);
+    }
+
+    const labelText = $("#setCharacterLabelText");
+    if (labelText) {
+      labelText.textContent = state.draftCoModelIds.size > 0
+        ? `Персонаж для ${primaryModel?.name || "основной модели"}`
+        : "Персонаж";
     }
 
     if (chipsEl) {
@@ -3196,14 +3256,24 @@
           if (!model) return "";
           const cover = getModelCover(mId);
           const coverSrc = cover ? photoURL(cover, "cover") : "";
+          const charVal = state.draftCoModelCharacters.get(mId) || "";
           return `
-            <span class="co-model-chip" data-id="${escapeHTML(mId)}">
-              ${coverSrc
-                ? `<img class="co-model-avatar-preview" src="${coverSrc}" alt="${escapeHTML(model.name)}">`
-                : `<span class="co-model-avatar-preview" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;">✦</span>`}
-              <span>${escapeHTML(model.name)}</span>
-              <button type="button" class="co-model-remove-btn" data-action="remove-co-model" data-id="${escapeHTML(mId)}" title="Убрать из дуэта">×</button>
-            </span>
+            <div class="co-model-card" data-id="${escapeHTML(mId)}">
+              <div class="co-model-card-top">
+                <span class="co-model-user-badge">
+                  ${coverSrc
+                    ? `<img class="co-model-avatar-preview" src="${coverSrc}" alt="${escapeHTML(model.name)}">`
+                    : `<span class="co-model-avatar-preview" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;">✦</span>`}
+                  <span>${escapeHTML(model.name)}</span>
+                </span>
+                <button type="button" class="co-model-remove-btn" data-action="remove-co-model" data-id="${escapeHTML(mId)}" title="Убрать из дуэта">×</button>
+              </div>
+              <div class="co-model-char-row">
+                <span class="co-model-char-title">Персонаж для ${escapeHTML(model.name)}:</span>
+                <input type="text" class="co-model-char-input" data-model-id="${escapeHTML(mId)}"
+                  placeholder="Например, Aerith" value="${escapeHTML(charVal)}" maxlength="120">
+              </div>
+            </div>
           `;
         }).join("");
       }
@@ -3255,6 +3325,26 @@
     state.draftCoModelIds = new Set(
       getSetModelIds(set).filter(id => id !== activePrimaryId)
     );
+    state.draftCoModelCharacters = new Map();
+
+    let primaryChar = "";
+    if (set?.modelCharacters && typeof set.modelCharacters === "object") {
+      primaryChar = set.modelCharacters[activePrimaryId] || "";
+      for (const [mId, char] of Object.entries(set.modelCharacters)) {
+        if (mId !== activePrimaryId) {
+          state.draftCoModelCharacters.set(mId, char || "");
+        }
+      }
+    } else if (set?.character) {
+      const parts = String(set.character).split(/\s*(?:&|\+|×|\/|\band\b|\bи\b)\s*/i).map(p => p.trim()).filter(Boolean);
+      primaryChar = parts[0] || set.character;
+      const coIds = Array.from(state.draftCoModelIds);
+      coIds.forEach((cId, idx) => {
+        if (parts[idx + 1]) {
+          state.draftCoModelCharacters.set(cId, parts[idx + 1]);
+        }
+      });
+    }
 
     if (set) {
       const savedMap = new Map(state.photos.map(p => [p.id, p]));
@@ -3266,7 +3356,7 @@
     }
 
     $("#setId").value = set?.id || "";
-    $("#setCharacter").value = set?.character || "";
+    $("#setCharacter").value = primaryChar || (set?.character || "");
     $("#setTitle").value = set?.title || "";
     $("#setRating").value = set?.rating || "";
     $("#setDate").value = set ? (set.date || "") : today();
@@ -4123,6 +4213,21 @@
     const coModelIds = Array.from(state.draftCoModelIds || []).filter(cId => cId && cId !== modelId);
     const allModelIds = [modelId, ...coModelIds];
 
+    const modelCharacters = {
+      [modelId]: character
+    };
+
+    for (const coId of coModelIds) {
+      const inputEl = document.querySelector(`.co-model-char-input[data-model-id="${coId}"]`);
+      const coChar = (inputEl ? inputEl.value : state.draftCoModelCharacters?.get(coId)) || "";
+      if (coChar.trim()) {
+        modelCharacters[coId] = coChar.trim();
+      }
+    }
+
+    const allCharList = [character, ...coModelIds.map(id => modelCharacters[id])].filter(Boolean);
+    const compositeCharacter = allCharList.join(" & ") || character;
+
     // Сохраняем фотографии в порядке, установленном пользователем в draftPhotoList
     const orderedPhotos = state.draftPhotoList.filter(
       photo => !state.draftRemovedPhotoIds.has(photo.id)
@@ -4156,10 +4261,14 @@
     const currModelIds = allModelIds.slice().sort().join(",");
     const modelsUnchanged = prevModelIds === currModelIds;
 
-    // Проверяем, изменились ли только обложка и/или теги (а модели, персонаж, название, описание, рейтинг не менялись и новые фото не добавлялись)
-    const isMinorSetChange = previous && !hasAddedNewPhotos && modelsUnchanged && (
+    const prevModelChars = JSON.stringify(previous?.modelCharacters || {});
+    const currModelChars = JSON.stringify(modelCharacters);
+    const charactersUnchanged = prevModelChars === currModelChars;
+
+    // Проверяем, изменились ли только обложка и/или теги (а модели, персонажи, название, описание, рейтинг не менялись и новые фото не добавлялись)
+    const isMinorSetChange = previous && !hasAddedNewPhotos && modelsUnchanged && charactersUnchanged && (
       previous.modelId === modelId &&
-      previous.character === character &&
+      previous.character === compositeCharacter &&
       (previous.title || "").trim() === $("#setTitle").value.trim() &&
       Number(previous.rating || 0) === Number(ratingValue || 0) &&
       (previous.description || "").trim() === $("#setDescription").value.trim()
@@ -4184,8 +4293,9 @@
       id,
       modelId,
       modelIds: allModelIds,
+      modelCharacters,
       slug,
-      character,
+      character: compositeCharacter,
       title: $("#setTitle").value.trim(),
       rating: Number.isFinite(ratingValue)
         ? Math.max(0, Math.min(5, ratingValue))
@@ -4237,6 +4347,7 @@
       state.draftRemovedPhotoIds.clear();
       state.draftCoverPhotoId = null;
       state.draftCoModelIds.clear();
+      state.draftCoModelCharacters.clear();
 
       await refreshData();
       closeDialog($("#setDialog"));
@@ -4493,6 +4604,7 @@
     }
 
     const models = getSetModels(set);
+    const characters = getSetCharacters(set);
     const isCollab = models.length > 1;
     const model = models[0] || getModel(set.modelId);
     const photos = getSetPhotos(set);
@@ -4541,12 +4653,14 @@
                  ${models.map((m, idx) => {
                    const mCover = getModelCover(m.id);
                    const mCoverURL = mCover ? photoURL(mCover, "cover") : "";
+                   const charForM = getCharacterForModel(set, m.id);
                    return `
                      <a class="set-detail-model-chip" href="${modelHref(m.id)}" title="Перейти к модели ${escapeHTML(m.name)}">
                        <span class="set-detail-model-avatar">
                          ${mCoverURL ? `<img src="${mCoverURL}" alt="${escapeHTML(m.name)}">` : escapeHTML(getModelInitial(m))}
                        </span>
                        <span>${escapeHTML(m.name)}</span>
+                       ${(isCollab && charForM) ? `<span class="set-detail-model-char">(${escapeHTML(charForM)})</span>` : ""}
                      </a>
                      ${idx < models.length - 1 ? '<span class="set-detail-models-sep">×</span>' : ''}
                    `;
@@ -4558,13 +4672,17 @@
           <h1>${escapeHTML(title)}</h1>
           <div class="set-meta">
             <span class="set-meta-character">
-              Персонаж: ${set.character
-                ? `<button class="set-character-pill" type="button"
-                     data-action="filter-character" data-character="${escapeHTML(set.character)}"
-                     title="Показать все сеты персонажа ${escapeHTML(set.character)}">
-                     <span>${escapeHTML(set.character)}</span>
-                     <span class="search-icon" aria-hidden="true">🔍</span>
-                   </button>`
+              ${characters.length > 1 ? "Персонажи:" : "Персонаж:"}
+              ${characters.length
+                ? characters.map((char, idx) => `
+                    <button class="set-character-pill" type="button"
+                      data-action="filter-character" data-character="${escapeHTML(char)}"
+                      title="Показать все сеты персонажа ${escapeHTML(char)}">
+                      <span>${escapeHTML(char)}</span>
+                      <span class="search-icon" aria-hidden="true">🔍</span>
+                    </button>
+                    ${idx < characters.length - 1 ? '<span class="char-sep">&</span>' : ''}
+                  `).join("")
                 : "не указан"}
             </span>
             <span>${escapeHTML(formatDate(set.date || set.createdAt?.slice(0, 10)))}</span>
@@ -5245,9 +5363,14 @@
           ...(Array.isArray(set.modelIds) ? set.modelIds : [])
         ].filter(mId => modelIds.has(mId));
 
+        const modelCharacters = (set.modelCharacters && typeof set.modelCharacters === "object")
+          ? { ...set.modelCharacters }
+          : {};
+
         return {
           ...set,
-          modelIds: Array.from(new Set(validModelIds))
+          modelIds: Array.from(new Set(validModelIds)),
+          modelCharacters
         };
       });
 
@@ -5964,6 +6087,7 @@
           return {
             ...s,
             modelIds: Array.from(new Set(validModelIds)),
+            modelCharacters: (s.modelCharacters && typeof s.modelCharacters === "object") ? { ...s.modelCharacters } : {},
             photoIds,
             coverPhotoId: cover
           };
@@ -6453,7 +6577,20 @@
       const selectedId = event.target.value;
       if (selectedId) {
         state.draftCoModelIds.add(selectedId);
+        if (!state.draftCoModelCharacters.has(selectedId)) {
+          state.draftCoModelCharacters.set(selectedId, "");
+        }
         renderCoModelChips();
+      }
+    });
+
+    $("#coModelsChips")?.addEventListener("input", event => {
+      const charInput = event.target.closest(".co-model-char-input");
+      if (charInput) {
+        const mId = charInput.dataset.modelId;
+        if (mId) {
+          state.draftCoModelCharacters.set(mId, charInput.value);
+        }
       }
     });
 
@@ -6463,6 +6600,7 @@
         const idToRemove = removeBtn.dataset.id;
         if (idToRemove) {
           state.draftCoModelIds.delete(idToRemove);
+          state.draftCoModelCharacters.delete(idToRemove);
           renderCoModelChips();
         }
       }

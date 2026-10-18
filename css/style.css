@@ -3881,22 +3881,63 @@ body.privacy-active .privacy-curtain {
 
 .co-models-chips {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   min-height: 4px;
 }
 
-.co-model-chip {
+.co-model-card {
+  background: rgba(182, 154, 255, 0.08);
+  border: 1px solid rgba(182, 154, 255, 0.28);
+  border-radius: 10px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.co-model-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.co-model-user-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(182, 154, 255, 0.18);
-  border: 1px solid rgba(182, 154, 255, 0.35);
-  border-radius: 999px;
-  padding: 3px 8px 3px 5px;
-  font-size: 13px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: #f1edff;
-  font-weight: 500;
+}
+
+.co-model-char-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.co-model-char-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.co-model-char-input {
+  flex: 1;
+  min-height: 35px;
+  padding: 6px 11px;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  transition: border-color 140ms ease;
+}
+
+.co-model-char-input:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .co-model-avatar-preview {
@@ -3912,14 +3953,14 @@ body.privacy-active .privacy-curtain {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   padding: 0;
   transition: background 140ms ease;
@@ -3931,6 +3972,19 @@ body.privacy-active .privacy-curtain {
 
 .co-model-select {
   width: 100%;
+}
+
+.set-detail-model-char {
+  font-size: 12px;
+  color: #cfbdf8;
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.char-sep {
+  color: var(--text-muted, #7c6f96);
+  font-weight: 700;
+  margin: 0 3px;
 }
 
 /* -------------------- Поиск и фильтрация по персонажу -------------------- */
