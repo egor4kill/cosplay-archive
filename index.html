@@ -38,16 +38,16 @@
     } catch {}
   </script>
 
-  <link rel="stylesheet" href="css/style.css?v=31">
+  <link rel="stylesheet" href="css/style.css?v=32">
 
-  <script src="js/config.js?v=31" defer></script>
-  <script src="js/providers/registry.js?v=31" defer></script>
-  <script src="js/drive.js?v=31" defer></script>
-  <script src="js/providers/dropbox.js?v=31" defer></script>
-  <script src="js/vendor/jszip.min.js?v=31" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=31" defer></script>
-  <script src="js/vendor/unrar.min.js?v=31" defer></script>
-  <script src="js/app.js?v=31" defer></script>
+  <script src="js/config.js?v=32" defer></script>
+  <script src="js/providers/registry.js?v=32" defer></script>
+  <script src="js/drive.js?v=32" defer></script>
+  <script src="js/providers/dropbox.js?v=32" defer></script>
+  <script src="js/vendor/jszip.min.js?v=32" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=32" defer></script>
+  <script src="js/vendor/unrar.min.js?v=32" defer></script>
+  <script src="js/app.js?v=32" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -491,22 +491,37 @@
 
       <div class="form-grid">
         <label for="setModelId">
-          Косплеерша <span class="required">*</span>
+          Основная модель <span class="required">*</span>
           <select id="setModelId" required>
             <option value="">Сначала добавь модель</option>
           </select>
         </label>
 
         <label for="setCharacter">
-          Персонаж <span class="required">*</span>
+          Персонаж(и) <span class="required">*</span>
           <input
             id="setCharacter"
             type="text"
             maxlength="120"
             required
-            placeholder="Например, Tifa Lockhart"
+            placeholder="Например, Tifa Lockhart или Tifa & Aerith"
           >
         </label>
+
+        <div class="full-width co-models-section" id="coModelsSection">
+          <label class="co-models-title" for="setCoModelSelect">
+            👥 Вторая модель / Дуэт (необязательно)
+          </label>
+          <div class="co-models-control">
+            <div class="co-models-chips" id="coModelsChips"></div>
+            <select id="setCoModelSelect" class="co-model-select">
+              <option value="">+ Добавить вторую модель в этот сет…</option>
+            </select>
+          </div>
+          <small class="muted">
+            Если в фотосессии участвовали две или несколько моделей, добавь их — сет появится в профилях всех участниц!
+          </small>
+        </div>
 
         <label class="full-width" for="setTitle">
           Название сета (необязательно)

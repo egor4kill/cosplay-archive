@@ -3741,4 +3741,196 @@ body.privacy-active .privacy-curtain {
   margin: 0;
 }
 
+/* -------------------- Совместные фотосеты (Дуэты и Коллабы) -------------------- */
+
+.card-models-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: -2px 0 3px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.card-model-link {
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+
+.card-model-link:hover {
+  color: var(--accent, #b69aff);
+  text-decoration-color: var(--accent, #b69aff);
+}
+
+.card-models-sep {
+  color: var(--text-muted, #7c6f96);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card-collab-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: rgba(182, 154, 255, 0.16);
+  color: #d1bfff;
+  border: 1px solid rgba(182, 154, 255, 0.35);
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+/* На странице сета */
+.set-detail-models-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.set-detail-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13.5px;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.set-detail-model-chip:hover {
+  background: rgba(182, 154, 255, 0.18);
+  border-color: rgba(182, 154, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.set-detail-model-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.set-detail-model-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.set-detail-models-sep {
+  color: var(--text-muted, #7c6f96);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.collab-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: linear-gradient(135deg, rgba(182, 154, 255, 0.25), rgba(120, 80, 220, 0.2));
+  color: #e4d8ff;
+  border: 1px solid rgba(182, 154, 255, 0.35);
+  border-radius: 999px;
+}
+
+/* Форма редактирования сета: выбор со-моделей */
+.co-models-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(182, 154, 255, 0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 2px;
+}
+
+.co-models-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d1c8ea;
+  margin-bottom: 8px;
+}
+
+.co-models-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.co-models-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 4px;
+}
+
+.co-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(182, 154, 255, 0.18);
+  border: 1px solid rgba(182, 154, 255, 0.35);
+  border-radius: 999px;
+  padding: 3px 8px 3px 5px;
+  font-size: 13px;
+  color: #f1edff;
+  font-weight: 500;
+}
+
+.co-model-avatar-preview {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.1);
+  display: inline-block;
+}
+
+.co-model-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  transition: background 140ms ease;
+}
+
+.co-model-remove-btn:hover {
+  background: #ff4757;
+}
+
+.co-model-select {
+  width: 100%;
+}
+
 

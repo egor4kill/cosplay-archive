@@ -383,6 +383,7 @@
     draftModelCoverPhotoId: null,
     draftPhotoList: [],
     draftSelectedPhotoIds: new Set(),
+    draftCoModelIds: new Set(),
     privacyActive: true,
     isLocked: true,
     hasPin: false,
@@ -1091,6 +1092,16 @@
     return state.sets.find(set => set.id === id);
   }
 
+  function getSetModelIds(set) {
+    if (!set) return [];
+    const list = [set.modelId, ...(set.modelIds || [])].filter(Boolean);
+    return Array.from(new Set(list));
+  }
+
+  function getSetModels(set) {
+    return getSetModelIds(set).map(id => getModel(id)).filter(Boolean);
+  }
+
   /* -------------------- Адреса (slug) -------------------- */
 
   function slugify(value) {
@@ -1189,9 +1200,9 @@
     const lower = String(ref).toLocaleLowerCase("ru");
 
     return state.sets.find(
-      set => set.modelId === modelId && setSlug(set) === lower
+      set => getSetModelIds(set).includes(modelId) && setSlug(set) === lower
     ) || state.sets.find(
-      set => set.modelId === modelId && set.id === ref
+      set => getSetModelIds(set).includes(modelId) && set.id === ref
     ) || null;
   }
 
@@ -1390,7 +1401,7 @@
     if (!model) return "";
     let latest = model.updatedAt || model.createdAt || "";
     for (const set of state.sets) {
-      if (set.modelId === model.id) {
+      if (getSetModelIds(set).includes(model.id)) {
         const setTime = set.updatedAt || set.createdAt || set.date || "";
         if (setTime > latest) {
           latest = setTime;
@@ -1502,7 +1513,7 @@
   }
 
   function countModelSets(modelId) {
-    return state.sets.filter(set => set.modelId === modelId).length;
+    return state.sets.filter(set => getSetModelIds(set).includes(modelId)).length;
   }
 
   function countPhotos(set) {
@@ -1527,7 +1538,7 @@
     }
 
     const sets = state.sets
-      .filter(set => set.modelId === modelId)
+      .filter(set => getSetModelIds(set).includes(modelId))
       .sort((a, b) => String(b.date || b.createdAt || "").localeCompare(
         String(a.date || a.createdAt || "")
       ));
@@ -1678,7 +1689,8 @@
   }
 
   function renderSetCard(set) {
-    const model = getModel(set.modelId);
+    const models = getSetModels(set);
+    const isCollab = models.length > 1;
     const cover = getCover(set);
     const tags = set.tags || [];
     const rating = Number(set.rating || 0);
@@ -1715,13 +1727,18 @@
           <p class="card-subtitle">
             ${escapeHTML(set.character || "Персонаж не указан")}
           </p>
-          ${model
-            ? `<p class="card-subtitle">
-                 <button class="text-button" type="button"
-                   data-action="open-model" data-id="${escapeHTML(model.id)}">
-                   ${escapeHTML(model.name)}
-                 </button>
-               </p>`
+          ${models.length
+            ? `<div class="card-models-wrap">
+                 ${models.map((m, idx) => `
+                   <button class="card-model-link" type="button"
+                     data-action="open-model" data-id="${escapeHTML(m.id)}"
+                     title="Перейти к модели ${escapeHTML(m.name)}">
+                     ${escapeHTML(m.name)}
+                   </button>
+                   ${idx < models.length - 1 ? '<span class="card-models-sep">×</span>' : ''}
+                 `).join("")}
+                 ${isCollab ? '<span class="card-collab-badge" title="Совместная фотосессия">👥 дуэт</span>' : ''}
+               </div>`
             : `<p class="card-subtitle">Модель не найдена</p>`}
           ${renderCardTags(tags)}
           <div class="card-actions">
@@ -1962,10 +1979,10 @@
     const favoritesOnly = Boolean($("#favoritesOnly")?.checked);
 
     let sets = state.sets.filter(set => {
-      const model = getModel(set.modelId);
+      const models = getSetModels(set);
       const setTags = (set.tags || []).map(t => String(t || "").trim().replace(/^#+/, "").toLowerCase());
 
-      if (modelId && set.modelId !== modelId) return false;
+      if (modelId && !getSetModelIds(set).includes(modelId)) return false;
       if (favoritesOnly && !set.favorite) return false;
 
       // Тег выбран: фильтруем ТОЛЬКО сеты, у которых этот тег действительно указан
@@ -1988,7 +2005,7 @@
         set.character,
         set.title,
         set.description,
-        model?.name,
+        ...models.map(m => m.name),
         ...setTags
       ].some(value => normalize(value).includes(query));
     });
@@ -2079,7 +2096,7 @@
     if (!grid) return;
 
     const sets = sortSets(
-      state.sets.filter(set => set.modelId === model.id),
+      state.sets.filter(set => getSetModelIds(set).includes(model.id)),
       $("#setSort")?.value || "updated"
     );
 
@@ -2770,10 +2787,11 @@
       title = model ? `${model.name} — ${base}` : `Модель не найдена — ${base}`;
     } else if (state.page === "set-detail") {
       const set = getSet(state.viewedSetId);
-      const model = set ? getModel(set.modelId) : null;
+      const models = set ? getSetModels(set) : [];
+      const modelsStr = models.map(m => m.name).join(" × ");
 
       title = set
-        ? `${set.title || set.character || "Сет"}${model ? ` · ${model.name}` : ""} — ${base}`
+        ? `${set.title || set.character || "Сет"}${modelsStr ? ` · ${modelsStr}` : ""} — ${base}`
         : `Сет не найден — ${base}`;
     }
 
@@ -2851,7 +2869,7 @@
       return;
     }
 
-    const modelSets = state.sets.filter(s => s.modelId === model.id);
+    const modelSets = state.sets.filter(s => getSetModelIds(s).includes(model.id));
     const photos = modelSets.flatMap(s => getSetPhotos(s));
 
     if (!photos.length) {
@@ -3016,20 +3034,64 @@
     const model = getModel(id);
     if (!model) return;
 
-    const relatedSets = state.sets.filter(set => set.modelId === id);
+    const allModelSets = state.sets.filter(set => getSetModelIds(set).includes(id));
 
-    const message = relatedSets.length
-      ? `Удалить модель «${model.name}» и все её сеты (${relatedSets.length}) вместе с фотографиями? Это действие нельзя отменить.`
+    // Сеты, которые принадлежат ТОЛЬКО этой модели:
+    const exclusiveSets = allModelSets.filter(set => {
+      const remaining = getSetModelIds(set).filter(mId => mId !== id);
+      return remaining.length === 0;
+    });
+
+    // Сеты, в которых участвуют другие модели (совместные фотосеты):
+    const sharedSets = allModelSets.filter(set => {
+      const remaining = getSetModelIds(set).filter(mId => mId !== id);
+      return remaining.length > 0;
+    });
+
+    let detailNote = "";
+    if (exclusiveSets.length && sharedSets.length) {
+      detailNote = ` (${exclusiveSets.length} эксклюзивных сетов будут удалены, а ${sharedSets.length} совместных сохранятся у других моделей)`;
+    } else if (exclusiveSets.length) {
+      detailNote = ` и все её сеты (${exclusiveSets.length}) вместе с фотографиями`;
+    } else if (sharedSets.length) {
+      detailNote = ` (${sharedSets.length} совместных сетов сохранятся у других участниц)`;
+    }
+
+    const message = (exclusiveSets.length || sharedSets.length)
+      ? `Удалить модель «${model.name}»${detailNote}? Это действие нельзя отменить.`
       : `Удалить модель «${model.name}»?`;
 
     if (!confirm(message)) return;
 
     recordDeletion("models", id);
-    recordDeletion("sets", relatedSets.map(set => set.id));
-    recordDeletion("photos", relatedSets.flatMap(set => set.photoIds || []));
+    recordDeletion("sets", exclusiveSets.map(set => set.id));
+    recordDeletion("photos", exclusiveSets.flatMap(set => set.photoIds || []));
 
     try {
-      await db.deleteModelAndSets(id, relatedSets);
+      // Для совместных сетов: обновляем записи, убирая удалённую модель и при необходимости переназначая primary modelId
+      const updatedSharedSets = sharedSets.map(set => {
+        const remainingIds = getSetModelIds(set).filter(mId => mId !== id);
+        const newPrimaryId = (set.modelId === id) ? remainingIds[0] : set.modelId;
+        return {
+          ...set,
+          modelId: newPrimaryId,
+          modelIds: remainingIds,
+          updatedAt: new Date().toISOString()
+        };
+      });
+
+      for (const updatedSet of updatedSharedSets) {
+        await db.put(CONFIG.stores.sets, updatedSet);
+      }
+
+      await db.deleteModelAndSets(id, exclusiveSets);
+
+      for (const updatedSet of updatedSharedSets) {
+        for (const remId of updatedSet.modelIds) {
+          await touchModel(remId);
+        }
+      }
+
       cleanupObjectURLs();
       await refreshData();
 
@@ -3044,6 +3106,58 @@
     } catch (error) {
       console.error(error);
       showToast("Не удалось удалить модель.", "error");
+    }
+  }
+
+  function renderCoModelChips() {
+    const chipsEl = $("#coModelsChips");
+    const selectEl = $("#setCoModelSelect");
+    const primaryId = $("#setModelId")?.value || "";
+
+    if (primaryId && state.draftCoModelIds.has(primaryId)) {
+      state.draftCoModelIds.delete(primaryId);
+    }
+
+    if (chipsEl) {
+      if (state.draftCoModelIds.size === 0) {
+        chipsEl.innerHTML = "";
+      } else {
+        chipsEl.innerHTML = Array.from(state.draftCoModelIds).map(mId => {
+          const model = getModel(mId);
+          if (!model) return "";
+          const cover = getModelCover(mId);
+          const coverSrc = cover ? photoURL(cover, "cover") : "";
+          return `
+            <span class="co-model-chip" data-id="${escapeHTML(mId)}">
+              ${coverSrc
+                ? `<img class="co-model-avatar-preview" src="${coverSrc}" alt="${escapeHTML(model.name)}">`
+                : `<span class="co-model-avatar-preview" style="display:inline-flex;align-items:center;justify-content:center;font-size:11px;">✦</span>`}
+              <span>${escapeHTML(model.name)}</span>
+              <button type="button" class="co-model-remove-btn" data-action="remove-co-model" data-id="${escapeHTML(mId)}" title="Убрать из дуэта">×</button>
+            </span>
+          `;
+        }).join("");
+      }
+    }
+
+    if (selectEl) {
+      const availableModels = sortModels(state.models, "name").filter(m =>
+        m.id !== primaryId && !state.draftCoModelIds.has(m.id)
+      );
+
+      if (availableModels.length === 0) {
+        selectEl.innerHTML = `<option value="">Все доступные модели уже добавлены</option>`;
+        selectEl.disabled = true;
+      } else {
+        selectEl.disabled = false;
+        selectEl.innerHTML = `
+          <option value="">+ Добавить вторую модель в этот сет…</option>
+          ${availableModels.map(m => `
+            <option value="${escapeHTML(m.id)}">${escapeHTML(m.name)}</option>
+          `).join("")}
+        `;
+      }
+      selectEl.value = "";
     }
   }
 
@@ -3067,6 +3181,11 @@
     state.draftRemovedPhotoIds = new Set();
     state.draftSelectedPhotoIds = new Set();
     state.draftCoverPhotoId = set?.coverPhotoId || null;
+
+    const activePrimaryId = modelId || set?.modelId || state.models[0]?.id || "";
+    state.draftCoModelIds = new Set(
+      getSetModelIds(set).filter(id => id !== activePrimaryId)
+    );
 
     if (set) {
       const savedMap = new Map(state.photos.map(p => [p.id, p]));
@@ -3106,6 +3225,7 @@
         modelId || set?.modelId || state.models[0]?.id || "";
     }
 
+    renderCoModelChips();
     updateSlugHints();
 
     const heading = $("#setDialog .dialog-heading h2");
@@ -3563,9 +3683,10 @@
   /* -------------------- Массовая загрузка фотографий -------------------- */
 
   function massUploadSetLabel(set) {
-    const model = getModel(set.modelId);
+    const models = getSetModels(set);
+    const modelsName = models.map(m => m.name).join(" × ");
     const name = set.title || set.character || "Без названия";
-    return model ? `${model.name} — ${name}` : name;
+    return modelsName ? `${modelsName} — ${name}` : name;
   }
 
   function releaseMassUploadURLs() {
@@ -3588,9 +3709,9 @@
   function massUploadMatches(set, query) {
     if (!query) return true;
 
-    const model = getModel(set.modelId);
+    const models = getSetModels(set);
     const haystack = [
-      model?.name || "",
+      ...models.map(m => m.name),
       set.character || "",
       set.title || "",
       set.description || "",
@@ -3611,7 +3732,7 @@
       .map(model => ({
         model,
         sets: sortSets(
-          state.sets.filter(set => set.modelId === model.id
+          state.sets.filter(set => getSetModelIds(set).includes(model.id)
             && massUploadMatches(set, query)),
           "newest"
         )
@@ -3839,7 +3960,9 @@
 
     try {
       await db.saveSetWithPhotos(setRecord, newPhotos, []);
-      await touchModel(set.modelId);
+      for (const mId of getSetModelIds(set)) {
+        await touchModel(mId);
+      }
 
       resetMassUploadState();
       closeDialog($("#massUploadDialog"));
@@ -3919,7 +4042,7 @@
       || "set";
 
     if (state.sets.some(
-      item => item.id !== id && item.modelId === modelId && setSlug(item) === slug
+      item => item.id !== id && getSetModelIds(item).includes(modelId) && setSlug(item) === slug
     )) {
       showToast(`У этой модели уже есть сет с адресом «${slug}». Выбери другой.`, "error");
       $("#setSlug")?.focus();
@@ -3927,6 +4050,9 @@
     }
 
     const previous = getSet(id);
+
+    const coModelIds = Array.from(state.draftCoModelIds || []).filter(cId => cId && cId !== modelId);
+    const allModelIds = [modelId, ...coModelIds];
 
     // Сохраняем фотографии в порядке, установленном пользователем в draftPhotoList
     const orderedPhotos = state.draftPhotoList.filter(
@@ -3957,8 +4083,12 @@
     // Добавляются ли новые фотографии в сет (кроме одиночной загрузки прямой обложки)?
     const hasAddedNewPhotos = state.draftNewPhotos.length > 0 && !isDirectCoverOnlyUpload;
 
-    // Проверяем, изменились ли только обложка и/или теги (а персонаж, название, описание, рейтинг, модель не менялись и новые фото не добавлялись)
-    const isMinorSetChange = previous && !hasAddedNewPhotos && (
+    const prevModelIds = getSetModelIds(previous).sort().join(",");
+    const currModelIds = allModelIds.slice().sort().join(",");
+    const modelsUnchanged = prevModelIds === currModelIds;
+
+    // Проверяем, изменились ли только обложка и/или теги (а модели, персонаж, название, описание, рейтинг не менялись и новые фото не добавлялись)
+    const isMinorSetChange = previous && !hasAddedNewPhotos && modelsUnchanged && (
       previous.modelId === modelId &&
       previous.character === character &&
       (previous.title || "").trim() === $("#setTitle").value.trim() &&
@@ -3984,6 +4114,7 @@
     const setRecord = {
       id,
       modelId,
+      modelIds: allModelIds,
       slug,
       character,
       title: $("#setTitle").value.trim(),
@@ -4018,9 +4149,15 @@
       );
 
       if (shouldTouchModel) {
-        await touchModel(modelId);
-        if (previous && previous.modelId && previous.modelId !== modelId) {
-          await touchModel(previous.modelId);
+        for (const mId of allModelIds) {
+          await touchModel(mId);
+        }
+        if (previous) {
+          for (const oldId of getSetModelIds(previous)) {
+            if (!allModelIds.includes(oldId)) {
+              await touchModel(oldId);
+            }
+          }
         }
       }
 
@@ -4030,6 +4167,7 @@
       state.draftNewPhotos = [];
       state.draftRemovedPhotoIds.clear();
       state.draftCoverPhotoId = null;
+      state.draftCoModelIds.clear();
 
       await refreshData();
       closeDialog($("#setDialog"));
@@ -4133,9 +4271,10 @@
   }
 
   function downloadBaseName(set) {
-    const model = set ? getModel(set.modelId) : null;
+    const models = set ? getSetModels(set) : [];
+    const modelsSlug = models.map(m => slugify(m.name || "")).filter(Boolean).join("-x-");
     const parts = [
-      slugify(model?.name || ""),
+      modelsSlug,
       slugify(set?.title || set?.character || "")
     ].filter(Boolean);
 
@@ -4284,16 +4423,21 @@
       return;
     }
 
-    state.selectedModelId = set.modelId;
-
-    const model = getModel(set.modelId);
+    const models = getSetModels(set);
+    const isCollab = models.length > 1;
+    const model = models[0] || getModel(set.modelId);
     const photos = getSetPhotos(set);
     const title = set.title || set.character || "Без названия";
-    const modelName = model?.name || "Неизвестная модель";
 
-    // Соседние сеты этой же модели для перехода «назад / вперёд».
+    if (!state.selectedModelId || !getSetModelIds(set).includes(state.selectedModelId)) {
+      state.selectedModelId = set.modelId;
+    }
+
+    const currentModelId = state.selectedModelId;
+
+    // Соседние сеты для перехода «назад / вперёд».
     const siblings = sortSets(
-      state.sets.filter(item => item.modelId === set.modelId),
+      state.sets.filter(item => getSetModelIds(item).includes(currentModelId)),
       "newest"
     );
     const index = siblings.findIndex(item => item.id === set.id);
@@ -4313,18 +4457,35 @@
       <nav class="breadcrumbs" aria-label="Навигация по страницам">
         <a href="#/">Модели</a>
         <span aria-hidden="true">/</span>
-        ${model
-          ? `<a href="${modelHref(model.id)}">${escapeHTML(modelName)}</a>`
-          : `<span>${escapeHTML(modelName)}</span>`}
+        ${models.length
+          ? models.map(m => `<a href="${modelHref(m.id)}">${escapeHTML(m.name)}</a>`).join(' <span class="models-sep">×</span> ')
+          : `<span>Неизвестная модель</span>`}
         <span aria-hidden="true">/</span>
         <span aria-current="page">${escapeHTML(title)}</span>
       </nav>
 
       <div class="model-detail-hero set-detail-hero">
         <div class="hero-content">
-          <p class="eyebrow">${model
-            ? `<a href="${modelHref(model.id)}">${escapeHTML(modelName)}</a>`
-            : escapeHTML(modelName)}</p>
+          ${isCollab
+            ? `<div class="set-detail-models-row">
+                 <span class="collab-tag-badge">👥 Совместный сет</span>
+                 ${models.map((m, idx) => {
+                   const mCover = getModelCover(m.id);
+                   const mCoverURL = mCover ? photoURL(mCover, "cover") : "";
+                   return `
+                     <a class="set-detail-model-chip" href="${modelHref(m.id)}" title="Перейти к модели ${escapeHTML(m.name)}">
+                       <span class="set-detail-model-avatar">
+                         ${mCoverURL ? `<img src="${mCoverURL}" alt="${escapeHTML(m.name)}">` : escapeHTML(getModelInitial(m))}
+                       </span>
+                       <span>${escapeHTML(m.name)}</span>
+                     </a>
+                     ${idx < models.length - 1 ? '<span class="set-detail-models-sep">×</span>' : ''}
+                   `;
+                 }).join("")}
+               </div>`
+            : `<p class="eyebrow">${model
+                ? `<a href="${modelHref(model.id)}">${escapeHTML(model.name)}</a>`
+                : "Неизвестная модель"}</p>`}
           <h1>${escapeHTML(title)}</h1>
           <div class="set-meta">
             <span>Персонаж: ${escapeHTML(set.character || "не указан")}</span>
@@ -5000,7 +5161,17 @@
         throw new Error("Некоторые сеты ссылаются на отсутствующие модели.");
       }
 
-      const sets = backup.sets.map(set => ({ ...set }));
+      const sets = backup.sets.map(set => {
+        const validModelIds = [
+          set.modelId,
+          ...(Array.isArray(set.modelIds) ? set.modelIds : [])
+        ].filter(mId => modelIds.has(mId));
+
+        return {
+          ...set,
+          modelIds: Array.from(new Set(validModelIds))
+        };
+      });
 
       const photos = backup.photos.map(photo => {
         if (!photo.id || !photo.dataURL) {
@@ -5706,7 +5877,17 @@
             ? s.coverPhotoId
             : photoIds[0] || null;
 
-          return { ...s, photoIds, coverPhotoId: cover };
+          const validModelIds = [
+            s.modelId,
+            ...(Array.isArray(s.modelIds) ? s.modelIds : [])
+          ].filter(mId => modelIds.has(mId));
+
+          return {
+            ...s,
+            modelIds: Array.from(new Set(validModelIds)),
+            photoIds,
+            coverPhotoId: cover
+          };
         });
 
       const manifest = {
@@ -6141,10 +6322,32 @@
 
     $("#setTitle")?.addEventListener("input", syncSetSlug);
     $("#setCharacter")?.addEventListener("input", syncSetSlug);
-    $("#setModelId")?.addEventListener("change", updateSlugHints);
+    $("#setModelId")?.addEventListener("change", () => {
+      updateSlugHints();
+      renderCoModelChips();
+    });
     $("#setSlug")?.addEventListener("input", () => {
       $("#setSlug").dataset.touched = "1";
       updateSlugHints();
+    });
+
+    $("#setCoModelSelect")?.addEventListener("change", event => {
+      const selectedId = event.target.value;
+      if (selectedId) {
+        state.draftCoModelIds.add(selectedId);
+        renderCoModelChips();
+      }
+    });
+
+    $("#coModelsChips")?.addEventListener("click", event => {
+      const removeBtn = event.target.closest('[data-action="remove-co-model"]');
+      if (removeBtn) {
+        const idToRemove = removeBtn.dataset.id;
+        if (idToRemove) {
+          state.draftCoModelIds.delete(idToRemove);
+          renderCoModelChips();
+        }
+      }
     });
 
     $("#modelForm")?.addEventListener("submit", saveModel);
