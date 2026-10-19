@@ -386,6 +386,11 @@
     draftSelectedPhotoIds: new Set(),
     draftCoModelIds: new Set(),
     draftCoModelCharacters: new Map(),
+    uploadStep: "model",
+    draftSetModelId: null,
+    quickModelAvatarPhoto: null,
+    pendingDroppedFiles: null,
+    creatingCoModel: false,
     privacyActive: true,
     isLocked: true,
     hasPin: false,
@@ -3300,15 +3305,290 @@
     }
   }
 
-  /* -------------------- Сеты и фотографии -------------------- */
+  /* -------------------- Меню залива (Wizard Flow) -------------------- */
 
-  function openSetForm(set = null, modelId = null) {
-    if (!state.models.length) {
-      showToast("Сначала добавь хотя бы одну модель.", "error");
-      openModelForm();
+  function setUploadStep(step) {
+    state.uploadStep = step;
+
+    const tabModel = $("#uploadStepTabModel");
+    const tabDetails = $("#uploadStepTabDetails");
+    const panelModel = $("#uploadStepModelPanel");
+    const panelDetails = $("#uploadStepDetailsPanel");
+
+    if (step === "model") {
+      tabModel?.classList.add("active");
+      tabDetails?.classList.remove("active");
+      panelModel?.classList.remove("hidden");
+      panelDetails?.classList.add("hidden");
+
+      renderUploadModelsGrid($("#setUploadModelSearch")?.value || "");
+      setTimeout(() => $("#setUploadModelSearch")?.focus(), 80);
+    } else {
+      // Step: details
+      const currentModelId = state.draftSetModelId || $("#setModelId")?.value;
+      const currentModel = getModel(currentModelId);
+      if (!currentModel && state.models.length > 0) {
+        selectUploadModel(state.models[0].id, false);
+      }
+
+      tabModel?.classList.remove("active");
+      tabDetails?.classList.add("active");
+      panelModel?.classList.add("hidden");
+      panelDetails?.classList.remove("hidden");
+
+      updateUploadSelectedModelBar();
+      renderCoModelChips();
+      updateSlugHints();
+
+      // If pending dropped files exist, process them now that model is selected
+      if (state.pendingDroppedFiles && state.pendingDroppedFiles.length > 0) {
+        const files = state.pendingDroppedFiles;
+        state.pendingDroppedFiles = null;
+        addSelectedPhotos(files);
+      }
+
+      setTimeout(() => $("#setCharacter")?.focus(), 80);
+    }
+  }
+
+  function renderUploadModelsGrid(filterText = "") {
+    const grid = $("#uploadModelsGrid");
+    const empty = $("#uploadModelsEmpty");
+    const emptyText = $("#uploadModelsEmptyText");
+    if (!grid) return;
+
+    const query = (filterText || "").trim().toLowerCase();
+    const allModels = sortModels(state.models, "name");
+
+    const matched = allModels.filter(m => {
+      if (!query) return true;
+      const nameMatch = (m.name || "").toLowerCase().includes(query);
+      const tagMatch = (m.tags || []).some(t => t.toLowerCase().includes(query));
+      return nameMatch || tagMatch;
+    });
+
+    if (matched.length === 0) {
+      grid.innerHTML = "";
+      grid.classList.add("hidden");
+      if (empty) {
+        empty.classList.remove("hidden");
+        if (emptyText) {
+          emptyText.innerHTML = query
+            ? `Модель «<strong>${escapeHTML(query)}</strong>» ещё не добавлена в архив.`
+            : "В архиве пока нет ни одной модели.";
+        }
+      }
       return;
     }
 
+    if (empty) empty.classList.add("hidden");
+    grid.classList.remove("hidden");
+
+    const selectedId = state.draftSetModelId || $("#setModelId")?.value;
+
+    grid.innerHTML = matched.map(m => {
+      const isSelected = m.id === selectedId;
+      const cover = getModelCover(m.id);
+      const coverUrl = cover ? photoURL(cover, "preview") : "";
+      const setsCount = state.sets.filter(s => getSetModelIds(s).includes(m.id)).length;
+      const setsLabel = setsCount > 0
+        ? `${setsCount} ${pluralize(setsCount, "сет", "сета", "сетов")}`
+        : "нет сетов";
+
+      return `
+        <div
+          class="upload-model-card ${isSelected ? "selected" : ""}"
+          data-model-id="${escapeHTML(m.id)}"
+          role="button"
+          tabindex="0"
+          title="Выбрать модель ${escapeHTML(m.name)}"
+        >
+          <div class="upload-model-avatar">
+            ${coverUrl
+              ? `<img src="${coverUrl}" alt="${escapeHTML(m.name)}" loading="lazy">`
+              : escapeHTML(getModelInitial(m))}
+          </div>
+          <div class="upload-model-info">
+            <span class="upload-model-name">${escapeHTML(m.name)}</span>
+            <span class="upload-model-meta">${escapeHTML(setsLabel)}</span>
+          </div>
+          ${isSelected ? '<span class="upload-model-check" aria-label="Выбрана">✓</span>' : ''}
+        </div>
+      `;
+    }).join("");
+  }
+
+  function selectUploadModel(modelId, autoAdvance = true) {
+    if (!modelId) return;
+
+    if (state.creatingCoModel) {
+      // Adding a co-model
+      state.creatingCoModel = false;
+      state.draftCoModelIds.add(modelId);
+      if (!state.draftCoModelCharacters.has(modelId)) {
+        state.draftCoModelCharacters.set(modelId, "");
+      }
+      renderCoModelChips();
+      setUploadStep("details");
+      return;
+    }
+
+    state.draftSetModelId = modelId;
+
+    const modelInput = $("#setModelId");
+    if (modelInput) {
+      modelInput.value = modelId;
+    }
+
+    // If model was in draft co-models, remove it from co-models
+    if (state.draftCoModelIds?.has(modelId)) {
+      state.draftCoModelIds.delete(modelId);
+      state.draftCoModelCharacters.delete(modelId);
+    }
+
+    updateUploadSelectedModelBar();
+    updateSlugHints();
+    renderCoModelChips();
+
+    if (autoAdvance) {
+      setUploadStep("details");
+    } else {
+      renderUploadModelsGrid($("#setUploadModelSearch")?.value || "");
+    }
+  }
+
+  function updateUploadSelectedModelBar() {
+    const modelId = state.draftSetModelId || $("#setModelId")?.value;
+    const model = getModel(modelId);
+
+    const nameEl = $("#uploadSelectedModelName");
+    const avatarEl = $("#uploadSelectedModelAvatar");
+    const step1Sub = $("#uploadStep1Sub");
+
+    if (model) {
+      if (nameEl) nameEl.textContent = model.name;
+      if (step1Sub) step1Sub.textContent = model.name;
+
+      if (avatarEl) {
+        const cover = getModelCover(model.id);
+        const coverUrl = cover ? photoURL(cover, "preview") : "";
+        if (coverUrl) {
+          avatarEl.innerHTML = `<img src="${coverUrl}" alt="${escapeHTML(model.name)}">`;
+        } else {
+          avatarEl.textContent = getModelInitial(model);
+        }
+      }
+    } else {
+      if (nameEl) nameEl.textContent = "Не выбрана";
+      if (step1Sub) step1Sub.textContent = "Выбрать или создать";
+      if (avatarEl) avatarEl.textContent = "?";
+    }
+
+    const charLabelText = $("#setCharacterLabelText");
+    if (charLabelText) {
+      charLabelText.textContent = model ? `Персонаж (${model.name})` : "Персонаж";
+    }
+  }
+
+  async function handleQuickModelSave(advanceToSet = true) {
+    const nameInput = $("#quickModelNameInput");
+    const name = nameInput?.value.trim();
+    if (!name) {
+      showToast("Укажи никнейм модели.", "error");
+      nameInput?.focus();
+      return;
+    }
+
+    const tagsInput = $("#quickModelTagsInput");
+    const tags = parseTags(tagsInput?.value || "");
+    const baseSlug = slugify(name) || "model";
+
+    let finalSlug = baseSlug;
+    let counter = 1;
+    while (state.models.some(m => modelSlug(m) === finalSlug)) {
+      finalSlug = `${baseSlug}-${++counter}`;
+    }
+
+    const id = uid();
+    const newModel = {
+      id,
+      name,
+      slug: finalSlug,
+      url: "",
+      tags,
+      notes: "",
+      coverPhotoId: state.quickModelAvatarPhoto?.id || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setBusy(true, "Создание модели…");
+    try {
+      if (state.quickModelAvatarPhoto) {
+        await db.put(CONFIG.stores.photos, state.quickModelAvatarPhoto);
+        state.photos.push(state.quickModelAvatarPhoto);
+      }
+
+      await db.put(CONFIG.stores.models, newModel);
+      await refreshData();
+
+      // Reset quick model form
+      state.quickModelAvatarPhoto = null;
+      $("#uploadQuickCreateCard")?.classList.add("hidden");
+      if (nameInput) nameInput.value = "";
+      if (tagsInput) tagsInput.value = "";
+      const avatarPrev = $("#quickModelAvatarPreview");
+      if (avatarPrev) avatarPrev.textContent = "✦";
+      $("#quickModelAvatarResetBtn")?.classList.add("hidden");
+
+      renderAll();
+      showToast(`Модель «${name}» создана!`, "success");
+      scheduleAutoSync();
+
+      if (state.creatingCoModel) {
+        state.creatingCoModel = false;
+        state.draftCoModelIds.add(newModel.id);
+        if (!state.draftCoModelCharacters.has(newModel.id)) {
+          state.draftCoModelCharacters.set(newModel.id, "");
+        }
+        renderCoModelChips();
+        setUploadStep("details");
+      } else if (advanceToSet) {
+        selectUploadModel(newModel.id, true);
+      } else {
+        closeDialog($("#setDialog"));
+        navigate("models");
+      }
+    } catch (error) {
+      console.error("Ошибка при создании модели:", error);
+      showToast("Не удалось сохранить модель.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleQuickAvatarFile(file) {
+    if (!file) return;
+    try {
+      const prepared = await prepareImage(file);
+      state.quickModelAvatarPhoto = prepared;
+
+      const preview = $("#quickModelAvatarPreview");
+      const resetBtn = $("#quickModelAvatarResetBtn");
+      if (preview) {
+        const url = photoURL(prepared, "preview");
+        preview.innerHTML = `<img src="${url}" alt="Аватарка">`;
+      }
+      if (resetBtn) resetBtn.classList.remove("hidden");
+    } catch (err) {
+      console.error(err);
+      showToast("Не удалось обработать изображение.", "error");
+    }
+  }
+
+  /* -------------------- Сеты и фотографии -------------------- */
+
+  function openSetForm(set = null, modelId = null) {
     const form = $("#setForm");
     if (!form) return;
 
@@ -3320,8 +3600,27 @@
     state.draftRemovedPhotoIds = new Set();
     state.draftSelectedPhotoIds = new Set();
     state.draftCoverPhotoId = set?.coverPhotoId || null;
+    state.creatingCoModel = false;
 
-    const activePrimaryId = modelId || set?.modelId || state.models[0]?.id || "";
+    // Сброс формы быстрого создания модели и строки поиска
+    state.quickModelAvatarPhoto = null;
+    $("#uploadQuickCreateCard")?.classList.add("hidden");
+    const avatarPrev = $("#quickModelAvatarPreview");
+    if (avatarPrev) avatarPrev.textContent = "✦";
+    $("#quickModelAvatarResetBtn")?.classList.add("hidden");
+    if ($("#quickModelNameInput")) $("#quickModelNameInput").value = "";
+    if ($("#quickModelTagsInput")) $("#quickModelTagsInput").value = "";
+    if ($("#setUploadModelSearch")) $("#setUploadModelSearch").value = "";
+    $("#setUploadModelSearchClear")?.classList.add("hidden");
+
+    const activePrimaryId = modelId || set?.modelId || (state.models.length > 0 ? state.models[0].id : "");
+    state.draftSetModelId = activePrimaryId;
+
+    const modelInput = $("#setModelId");
+    if (modelInput) {
+      modelInput.value = activePrimaryId || "";
+    }
+
     state.draftCoModelIds = new Set(
       getSetModelIds(set).filter(id => id !== activePrimaryId)
     );
@@ -3370,26 +3669,18 @@
       setSlugInput.dataset.touched = set ? "1" : "";
     }
 
-    const modelSelect = $("#setModelId");
-
-    if (modelSelect) {
-      modelSelect.innerHTML = sortModels(state.models, "name")
-        .map(model => `
-          <option value="${escapeHTML(model.id)}">
-            ${escapeHTML(model.name)}
-          </option>
-        `).join("");
-
-      modelSelect.value =
-        modelId || set?.modelId || state.models[0]?.id || "";
-    }
-
     renderCoModelChips();
     updateSlugHints();
+    updateUploadSelectedModelBar();
 
-    const heading = $("#setDialog .dialog-heading h2");
+    const eyebrow = $("#setDialogEyebrow");
+    if (eyebrow) {
+      eyebrow.textContent = set ? "РЕДАКТИРОВАНИЕ" : "МЕНЮ ЗАЛИВА";
+    }
+
+    const heading = $("#setDialogTitle");
     if (heading) {
-      heading.textContent = set ? "Редактировать сет" : "Новый сет";
+      heading.textContent = set ? "Редактировать сет" : "Залить сет";
     }
 
     const label = $("#newPhotosLabel");
@@ -3401,7 +3692,22 @@
 
     renderDraftPhotos();
     openDialog($("#setDialog"));
-    $("#setCharacter")?.focus();
+
+    // Отрисовываем сетку моделей для шага 1
+    renderUploadModelsGrid("");
+
+    // Определяем начальный шаг
+    if (set || modelId) {
+      setUploadStep("details");
+    } else {
+      setUploadStep("model");
+      if (state.models.length === 0) {
+        $("#uploadQuickCreateCard")?.classList.remove("hidden");
+        setTimeout(() => $("#quickModelNameInput")?.focus(), 120);
+      } else {
+        setTimeout(() => $("#setUploadModelSearch")?.focus(), 120);
+      }
+    }
   }
 
   async function makeImageVersion(file, { maxDimension, quality, type }) {
@@ -4183,11 +4489,12 @@
     if (state.busy) return;
 
     const id = $("#setId").value || uid();
-    const modelId = $("#setModelId").value;
+    const modelId = $("#setModelId").value || state.draftSetModelId;
     const character = $("#setCharacter").value.trim();
 
     if (!modelId || !getModel(modelId)) {
-      showToast("Выбери существующую модель.", "error");
+      showToast("Выбери модель для сета.", "error");
+      setUploadStep("model");
       return;
     }
 
@@ -6491,18 +6798,137 @@
       openSetForm(null, state.selectedModelId);
     });
 
-    // Верхняя кнопка «+ Добавить»: открывает форму по текущему контексту.
+    // Верхняя кнопка «+ Залить сет»: открывает меню залива
     $("#addMainBtn")?.addEventListener("click", () => {
-      if (state.page === "sets") {
-        openSetForm();
-      } else if (
+      if (
         (state.page === "model-detail" || state.page === "set-detail")
         && state.selectedModelId
       ) {
         openSetForm(null, state.selectedModelId);
       } else {
-        openModelForm();
+        openSetForm();
       }
+    });
+
+    $("#toolbarAddModelBtn")?.addEventListener("click", () => {
+      openModelForm();
+    });
+
+    // Навигация по шагам в меню залива
+    $("#uploadStepTabModel")?.addEventListener("click", () => setUploadStep("model"));
+    $("#uploadStepTabDetails")?.addEventListener("click", () => setUploadStep("details"));
+    $("#uploadBackToModelBtn")?.addEventListener("click", () => setUploadStep("model"));
+    $("#uploadChangeModelBtn")?.addEventListener("click", () => setUploadStep("model"));
+
+    // Поиск модели в меню залива (Шаг 1)
+    const uploadModelSearchInput = $("#setUploadModelSearch");
+    const uploadModelSearchClear = $("#setUploadModelSearchClear");
+
+    uploadModelSearchInput?.addEventListener("input", () => {
+      const val = uploadModelSearchInput.value;
+      if (uploadModelSearchClear) {
+        if (val) uploadModelSearchClear.classList.remove("hidden");
+        else uploadModelSearchClear.classList.add("hidden");
+      }
+      renderUploadModelsGrid(val);
+    });
+
+    uploadModelSearchClear?.addEventListener("click", () => {
+      if (uploadModelSearchInput) {
+        uploadModelSearchInput.value = "";
+        uploadModelSearchClear.classList.add("hidden");
+        uploadModelSearchInput.focus();
+        renderUploadModelsGrid("");
+      }
+    });
+
+    // Выбор модели в сетке (Шаг 1)
+    $("#uploadModelsGrid")?.addEventListener("click", event => {
+      const card = event.target.closest(".upload-model-card");
+      if (card) {
+        const mId = card.dataset.modelId;
+        if (mId) selectUploadModel(mId, true);
+      }
+    });
+
+    $("#uploadModelsGrid")?.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        const card = event.target.closest(".upload-model-card");
+        if (card) {
+          event.preventDefault();
+          const mId = card.dataset.modelId;
+          if (mId) selectUploadModel(mId, true);
+        }
+      }
+    });
+
+    // Тоггл формы создания новой модели в меню залива
+    $("#setUploadNewModelToggleBtn")?.addEventListener("click", () => {
+      const card = $("#uploadQuickCreateCard");
+      if (card) {
+        card.classList.toggle("hidden");
+        if (!card.classList.contains("hidden")) {
+          const searchVal = $("#setUploadModelSearch")?.value.trim();
+          if (searchVal && !$("#quickModelNameInput")?.value) {
+            $("#quickModelNameInput").value = searchVal;
+          }
+          $("#quickModelNameInput")?.focus();
+        }
+      }
+    });
+
+    // Создание модели при пустом результате поиска
+    $("#uploadModelsEmptyCreateBtn")?.addEventListener("click", () => {
+      const card = $("#uploadQuickCreateCard");
+      if (card) {
+        card.classList.remove("hidden");
+        const searchVal = $("#setUploadModelSearch")?.value.trim();
+        if (searchVal) {
+          $("#quickModelNameInput").value = searchVal;
+        }
+        $("#quickModelNameInput")?.focus();
+      }
+    });
+
+    // Выбор аватарки в быстрой форме
+    $("#quickModelAvatarInput")?.addEventListener("change", event => {
+      const file = event.target.files?.[0];
+      if (file) handleQuickAvatarFile(file);
+      event.target.value = "";
+    });
+
+    $("#quickModelAvatarResetBtn")?.addEventListener("click", () => {
+      state.quickModelAvatarPhoto = null;
+      const preview = $("#quickModelAvatarPreview");
+      if (preview) preview.textContent = "✦";
+      $("#quickModelAvatarResetBtn")?.classList.add("hidden");
+    });
+
+    // Сохранение новой модели в меню залива
+    $("#quickModelSaveAndProceedBtn")?.addEventListener("click", () => {
+      handleQuickModelSave(true);
+    });
+
+    $("#quickModelSaveOnlyBtn")?.addEventListener("click", () => {
+      handleQuickModelSave(false);
+    });
+
+    $("#quickModelCancelBtn")?.addEventListener("click", () => {
+      state.quickModelAvatarPhoto = null;
+      $("#uploadQuickCreateCard")?.classList.add("hidden");
+      const preview = $("#quickModelAvatarPreview");
+      if (preview) preview.textContent = "✦";
+      $("#quickModelAvatarResetBtn")?.classList.add("hidden");
+      if ($("#quickModelNameInput")) $("#quickModelNameInput").value = "";
+      if ($("#quickModelTagsInput")) $("#quickModelTagsInput").value = "";
+    });
+
+    // Быстрое создание со-модели из шага 2
+    $("#coModelQuickAddBtn")?.addEventListener("click", () => {
+      state.creatingCoModel = true;
+      setUploadStep("model");
+      $("#uploadQuickCreateCard")?.classList.remove("hidden");
+      setTimeout(() => $("#quickModelNameInput")?.focus(), 100);
     });
 
     $("#backToModels")?.addEventListener("click", () => {
@@ -6835,13 +7261,14 @@
       } else if (massDialogOpen) {
         addMassPhotos(files);
       } else {
-        if (!state.models.length) {
-          showToast("Сначала добавь хотя бы одну модель.", "error");
-          openModelForm();
-          return;
+        if (state.selectedModelId) {
+          openSetForm(null, state.selectedModelId);
+          setTimeout(() => addSelectedPhotos(files), 150);
+        } else {
+          state.pendingDroppedFiles = files;
+          openSetForm();
+          showToast("Выбери модель для сета, чтобы продолжить загрузку.", "info");
         }
-        openSetForm(null, state.selectedModelId);
-        setTimeout(() => addSelectedPhotos(files), 150);
       }
     });
 

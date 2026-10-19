@@ -38,16 +38,16 @@
     } catch {}
   </script>
 
-  <link rel="stylesheet" href="css/style.css?v=34">
+  <link rel="stylesheet" href="css/style.css?v=35">
 
-  <script src="js/config.js?v=34" defer></script>
-  <script src="js/providers/registry.js?v=34" defer></script>
-  <script src="js/drive.js?v=34" defer></script>
-  <script src="js/providers/dropbox.js?v=34" defer></script>
-  <script src="js/vendor/jszip.min.js?v=34" defer></script>
-  <script src="js/vendor/zip-full.min.js?v=34" defer></script>
-  <script src="js/vendor/unrar.min.js?v=34" defer></script>
-  <script src="js/app.js?v=34" defer></script>
+  <script src="js/config.js?v=35" defer></script>
+  <script src="js/providers/registry.js?v=35" defer></script>
+  <script src="js/drive.js?v=35" defer></script>
+  <script src="js/providers/dropbox.js?v=35" defer></script>
+  <script src="js/vendor/jszip.min.js?v=35" defer></script>
+  <script src="js/vendor/zip-full.min.js?v=35" defer></script>
+  <script src="js/vendor/unrar.min.js?v=35" defer></script>
+  <script src="js/app.js?v=35" defer></script>
 </head>
 
 <body class="privacy-active">
@@ -100,8 +100,8 @@
         Случайный сет
       </button>
 
-      <button class="button button-primary" type="button" id="addMainBtn">
-        + Добавить
+      <button class="button button-primary" type="button" id="addMainBtn" title="Залить фотосет (выбор/создание модели и загрузка)">
+        + Залить сет
       </button>
     </div>
   </header>
@@ -156,6 +156,15 @@
           <option value="name">По имени</option>
           <option value="sets">По количеству сетов</option>
         </select>
+
+        <button
+          class="button button-quiet"
+          type="button"
+          id="toolbarAddModelBtn"
+          title="Создать профиль модели без сета"
+        >
+          + Новая модель
+        </button>
       </div>
 
       <div class="card-grid" id="modelsGrid"></div>
@@ -477,11 +486,11 @@
     class="dialog dialog-wide"
     aria-labelledby="setDialogTitle"
   >
-    <form id="setForm" class="dialog-form">
+    <form id="setForm" class="dialog-form upload-flow-form">
       <div class="dialog-heading">
         <div>
-          <p class="eyebrow">ФОТОСЕТ</p>
-          <h2 id="setDialogTitle">Добавить сет</h2>
+          <p class="eyebrow" id="setDialogEyebrow">МЕНЮ ЗАЛИВА</p>
+          <h2 id="setDialogTitle">Залить сет</h2>
         </div>
 
         <button
@@ -494,41 +503,147 @@
         </button>
       </div>
 
-      <input type="hidden" id="setId">
+      <!-- Навигация по шагам залива -->
+      <div class="upload-steps-bar" id="uploadStepsBar">
+        <button type="button" class="upload-step-item active" id="uploadStepTabModel" data-step="model">
+          <span class="step-badge">1</span>
+          <span class="step-title">Модель</span>
+          <span class="step-sub" id="uploadStep1Sub">Выбрать или создать</span>
+        </button>
+        <span class="upload-step-divider" aria-hidden="true">→</span>
+        <button type="button" class="upload-step-item" id="uploadStepTabDetails" data-step="details">
+          <span class="step-badge">2</span>
+          <span class="step-title">Сет и фото</span>
+          <span class="step-sub">Настройки и загрузка</span>
+        </button>
+      </div>
 
-      <div class="form-grid">
-        <label for="setModelId">
-          Основная модель <span class="required">*</span>
-          <select id="setModelId" required>
-            <option value="">Сначала добавь модель</option>
-          </select>
-        </label>
-
-        <label for="setCharacter" id="setCharacterLabel">
-          <span id="setCharacterLabelText">Персонаж</span> <span class="required">*</span>
-          <input
-            id="setCharacter"
-            type="text"
-            maxlength="120"
-            required
-            placeholder="Например, Tifa Lockhart"
-          >
-        </label>
-
-        <div class="full-width co-models-section" id="coModelsSection">
-          <label class="co-models-title" for="setCoModelSelect">
-            👥 Вторая модель / Дуэт (необязательно)
-          </label>
-          <div class="co-models-control">
-            <div class="co-models-chips" id="coModelsChips"></div>
-            <select id="setCoModelSelect" class="co-model-select">
-              <option value="">+ Добавить вторую модель в этот сет…</option>
-            </select>
+      <!-- ШАГ 1: ВЫБОР ИЛИ СОЗДАНИЕ МОДЕЛИ -->
+      <div class="upload-step-panel" id="uploadStepModelPanel">
+        <div class="upload-model-toolbar">
+          <div class="upload-model-search-field">
+            <span class="search-glyph" aria-hidden="true">🔍</span>
+            <input
+              id="setUploadModelSearch"
+              type="search"
+              placeholder="Поиск по имени или тегам модели…"
+              autocomplete="off"
+            >
+            <button type="button" class="upload-search-clear hidden" id="setUploadModelSearchClear" title="Очистить поиск">×</button>
           </div>
-          <small class="muted">
-            Если в фотосессии участвовали две или несколько моделей, добавь их — у каждой будет свой персонаж, а сет появится в профилях всех участниц!
-          </small>
+          <button type="button" class="button button-primary upload-create-model-btn" id="setUploadNewModelToggleBtn">
+            + Создать модель
+          </button>
         </div>
+
+        <!-- Быстрая форма создания модели прямо в меню залива -->
+        <div class="upload-quick-create-card hidden" id="uploadQuickCreateCard">
+          <div class="quick-create-header">
+            <h4>✨ Новая модель</h4>
+            <span class="muted small">Создай профиль и сразу переходи к заливу фотосета</span>
+          </div>
+          <div class="quick-create-body">
+            <div class="quick-avatar-group">
+              <div class="quick-avatar-preview" id="quickModelAvatarPreview">✦</div>
+              <label class="button button-quiet button-sm quick-avatar-upload-btn">
+                📷 Фото
+                <input type="file" id="quickModelAvatarInput" accept="image/*" hidden>
+              </label>
+              <button type="button" class="button button-quiet button-sm hidden" id="quickModelAvatarResetBtn" title="Сбросить фото">×</button>
+            </div>
+            <div class="quick-create-inputs">
+              <input
+                type="text"
+                id="quickModelNameInput"
+                placeholder="Никнейм косплеерши (например, Nika) *"
+                maxlength="100"
+                autocomplete="off"
+              >
+              <input
+                type="text"
+                id="quickModelTagsInput"
+                placeholder="Теги (через запятую, например: cosplay, gaming)"
+                maxlength="200"
+                autocomplete="off"
+              >
+            </div>
+          </div>
+          <div class="quick-create-actions">
+            <button type="button" class="button button-primary button-sm" id="quickModelSaveAndProceedBtn">
+              Создать и перейти к сету →
+            </button>
+            <button type="button" class="button button-quiet button-sm" id="quickModelSaveOnlyBtn">
+              Только сохранить модель
+            </button>
+            <button type="button" class="button button-quiet button-sm" id="quickModelCancelBtn">
+              Отмена
+            </button>
+          </div>
+        </div>
+
+        <!-- Список/сетка существующих моделей с аватарками -->
+        <div class="upload-models-container">
+          <div class="upload-models-grid" id="uploadModelsGrid"></div>
+          <div class="upload-models-empty hidden" id="uploadModelsEmpty">
+            <div class="empty-icon" aria-hidden="true">🔍</div>
+            <p id="uploadModelsEmptyText">Модель не найдена.</p>
+            <button type="button" class="button button-primary button-sm" id="uploadModelsEmptyCreateBtn">
+              + Создать такую модель
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ШАГ 2: НАСТРОЙКИ СЕТА И ЗАГРУЗКА ФОТО -->
+      <div class="upload-step-panel hidden" id="uploadStepDetailsPanel">
+        <!-- Карточка выбранной модели -->
+        <div class="upload-selected-model-banner" id="uploadSelectedModelBanner">
+          <div class="selected-model-pill">
+            <div class="selected-model-avatar" id="uploadSelectedModelAvatar"></div>
+            <div class="selected-model-details">
+              <span class="selected-model-caption">Модель сета:</span>
+              <strong class="selected-model-name" id="uploadSelectedModelName">Не выбрана</strong>
+            </div>
+          </div>
+          <button type="button" class="button button-quiet button-sm" id="uploadChangeModelBtn" title="Выбрать другую модель">
+            ↺ Сменить модель
+          </button>
+        </div>
+
+        <input type="hidden" id="setId">
+        <input type="hidden" id="setModelId">
+
+        <div class="form-grid">
+          <label for="setCharacter" id="setCharacterLabel">
+            <span id="setCharacterLabelText">Персонаж</span> <span class="required">*</span>
+            <input
+              id="setCharacter"
+              type="text"
+              maxlength="120"
+              required
+              placeholder="Например, Tifa Lockhart"
+            >
+          </label>
+
+          <div class="full-width co-models-section" id="coModelsSection">
+            <label class="co-models-title" for="setCoModelSelect">
+              👥 Вторая модель / Дуэт (необязательно)
+            </label>
+            <div class="co-models-control">
+              <div class="co-models-chips" id="coModelsChips"></div>
+              <div class="co-model-select-row">
+                <select id="setCoModelSelect" class="co-model-select">
+                  <option value="">+ Добавить вторую модель в этот сет…</option>
+                </select>
+                <button type="button" class="button button-quiet button-sm" id="coModelQuickAddBtn" title="Создать модель прямо отсюда">
+                  + Создать
+                </button>
+              </div>
+            </div>
+            <small class="muted">
+              Если в фотосессии участвовали две или несколько моделей, добавь их — у каждой будет свой персонаж, а сет появится в профилях всех участниц!
+            </small>
+          </div>
 
         <label class="full-width" for="setTitle">
           Название сета (необязательно)
@@ -679,18 +794,27 @@
         <p class="muted small" id="newPhotosLabel"></p>
       </div>
 
-      <div class="dialog-actions">
-        <button
-          class="button button-quiet"
-          type="button"
-          data-close="setDialog"
-        >
-          Отмена
-        </button>
+        <div class="dialog-actions">
+          <button
+            class="button button-quiet"
+            type="button"
+            id="uploadBackToModelBtn"
+          >
+            ← К выбору модели
+          </button>
 
-        <button class="button button-primary" type="submit">
-          Сохранить сет
-        </button>
+          <button
+            class="button button-quiet"
+            type="button"
+            data-close="setDialog"
+          >
+            Отмена
+          </button>
+
+          <button class="button button-primary" type="submit">
+            Сохранить сет
+          </button>
+        </div>
       </div>
     </form>
   </dialog>
